@@ -1,22 +1,27 @@
-/* ================= Study session (learn, practice, conjugation drill) ================= */
+/* ================= Study session: learn, practice, drill, test, build ================= */
 const GRADE_TXT = ["Nochmal", "Schwer", "Gut", "Leicht"];
 const WHY_TXT = { accent: "Fast – achte auf den Akzent", article: "Fast – der Artikel fehlt oder stimmt nicht", typo: "Fast – kleiner Tippfehler" };
+const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const newSession = (kind, o, queue) => ({ kind, o, queue, total: queue.length, done: 0, correct: 0, missed: new Set(), wrongIds: new Set(), history: [], t0: nowTs(), secs: 0 });
 
 function startLearn(o) {
   o = o || {};
   const q = buildQueue(o);
   if (!q.length) { toast(o.extraNew ? "Keine weiteren neuen Karten" : "Für heute ist nichts mehr fällig"); return false; }
-  state.study = { kind: "learn", o, queue: q.map((e) => ({ ...e, intro: !!e.isNew && state.settings.intro })), total: q.length, done: 0, correct: 0, missed: new Set(), history: [], t0: nowTs(), secs: 0 };
+  state.study = newSession("learn", o, q.map((e) => ({ ...e, intro: !!e.isNew && state.settings.intro })));
   openStudy();
   return true;
 }
+const cardHardness = (c) => Object.values(c.srs).reduce((a, s) => a + (s.lapses || 0) * 3 + (s.d || 0), 0);
+function poolOf(o) {
+  return (o.ids ? o.ids.map(cardById).filter(Boolean) : state.cards.filter((c) => inScope(c, o))).filter((c) => !c.susp && (c.de || c.type === "cloze"));
+}
 function practiceEntries(o) {
-  let pool = o.ids ? o.ids.map(cardById).filter(Boolean) : state.cards.filter((c) => (!o.lang || c.lang === o.lang) && (o.topic == null || (c.topic || "") === o.topic));
-  pool = pool.filter((c) => !c.susp);
+  let pool = poolOf(o);
   const t = today();
   if (o.sel === "hard") pool = pool.filter((c) => Object.values(c.srs).some((s) => s.lapses || s.d >= 7)).sort((a, b) => cardHardness(b) - cardHardness(a)).slice(0, Math.max(o.count * 2, 20));
   if (o.sel === "recent") pool = pool.filter((c) => Object.values(c.srs).some((s) => s.reps <= 3 && s.ld >= t - 3));
-  if (o.sel === "new") pool = pool.filter((c) => !Object.keys(c.srs).length);
+  if (o.sel === "new") pool = pool.filter((c) => !isLearned(c));
   if (o.sel === "verbs") pool = pool.filter((c) => c.type === "verb");
   shuffle(pool);
   return pool.slice(0, o.count || 20).map((c) => {
@@ -26,11 +31,10 @@ function practiceEntries(o) {
     return { id: c.id, k: items[Math.floor(Math.random() * items.length)], lang: c.lang };
   });
 }
-const cardHardness = (c) => Object.values(c.srs).reduce((a, s) => a + (s.lapses || 0) * 3 + (s.d || 0), 0);
 function startPractice(o) {
   const q = practiceEntries(o);
   if (!q.length) { toast("Keine passenden Karten zum Üben"); return; }
-  state.study = { kind: "practice", o, queue: q, total: q.length, done: 0, correct: 0, missed: new Set(), history: [], t0: nowTs(), secs: 0 };
+  state.study = newSession("practice", o, q);
   openStudy();
 }
 function drillEntries(o) {
@@ -47,7 +51,29 @@ function drillEntries(o) {
 function startDrill(o) {
   const q = drillEntries(o);
   if (!q.length) { toast("Für diese Zeiten sind noch keine Formen eingetragen"); return; }
-  state.study = { kind: "drill", o, queue: q, total: q.length, done: 0, correct: 0, missed: new Set(), history: [], t0: nowTs(), secs: 0 };
+  state.study = newSession("drill", o, q);
+  openStudy();
+}
+/* Test: mixed, auto-checked questions, scored at the end */
+function testEntries(o) {
+  const pool = shuffle(poolOf(o)).slice(0, o.count || 20);
+  return pool.map((c) => {
+    const L = langOf(c.lang), r = Math.random();
+    if (c.type === "cloze") return { id: c.id, k: "c", lang: c.lang, mode: r < 0.5 ? "choice" : "type" };
+    if (c.type === "verb" && c.tables && r < 0.55) {
+      const ts = L.tenses.filter((t) => L.active.includes(t.n) && c.tables[t.n] && c.tables[t.n].some(Boolean));
+      if (ts.length) { const t = ts[Math.floor(Math.random() * ts.length)], idx = c.tables[t.n].map((x, i) => (x && !(t.given || []).includes(i) ? i : -1)).filter((i) => i >= 0); if (idx.length) return { id: c.id, k: "d:" + t.n, i: idx[Math.floor(Math.random() * idx.length)], lang: c.lang, mode: "type" }; }
+    }
+    if (c.pos === "s" && wordCount(c.tg) >= 2) return { id: c.id, k: "b", lang: c.lang, mode: "tiles", sent: { tg: c.tg, de: c.de } };
+    if (r < 0.5) return { id: c.id, k: "f", lang: c.lang, mode: "type" };
+    return { id: c.id, k: r < 0.75 ? "r" : "f", lang: c.lang, mode: "choice" };
+  });
+}
+function startTest(o) {
+  const q = testEntries(o);
+  if (q.length < 3) { toast("Für einen Test braucht das Projekt mindestens 3 Karten"); return; }
+  state.study = newSession("test", o, q);
+  state.study.answers = [];
   openStudy();
 }
 function openStudy() {
@@ -57,9 +83,11 @@ function openStudy() {
 }
 function closeStudy() {
   saveNow();
-  try { speechSynthesis.cancel(); } catch { /* ignore */ }
+  stopSpeak();
+  try { if (curRec) curRec.abort(); } catch { /* ignore */ }
   $("study").hidden = true; state.study = null; document.body.style.overflow = "";
   render(); updateBadge();
+  if (typeof syncSoon === "function") syncSoon(2000);
 }
 
 /* ---------- Faces ---------- */
@@ -70,24 +98,28 @@ function answerFor(c, L) {
   if (c.type === "verb" || c.pos === "v") return "(to) " + c.tg;
   return c.tg;
 }
+const isSentence = (c) => c.pos === "s" || wordCount(c.tg) >= 5;
 function faceOf(c, k, L) {
-  if (k === "f") return { dir: `Deutsch → ${L.name}`, prompt: c.de, ans: answerFor(c, L), shown: c.tg, native: false, hint: c.type === "verb" ? "Verb" : c.pos ? POS[c.pos] + (c.pos === "n" && hasGenderedNouns(L) ? " · mit Artikel" : "") : "", sayAns: c.tg };
-  if (k === "r") return { dir: `${L.name} → Deutsch`, prompt: c.tg, ans: c.de, native: true, hint: c.type === "verb" ? "Verb" : c.pos ? POS[c.pos] : "", sayPrompt: c.tg };
-  if (k === "c") { const cz = parseCloze(c.tg); return { dir: "Lückensatz", cloze: cz, prompt: cz.text, hint: c.de, sayAns: c.tg.replace(/\{\{(.+?)\}\}/g, "$1") }; }
+  const ml = meaningName(c);
+  if (k === "f") return { dir: `${ml} → ${L.name}`, prompt: c.de, ans: answerFor(c, L), shown: c.tg, native: false, hint: c.pos === "n" && hasGenderedNouns(L) ? "mit Artikel" : "", sayAns: c.tg };
+  if (k === "r") return { dir: `${L.name} → ${ml}`, prompt: c.tg, ans: c.de, native: !c.ml, sayPrompt: c.tg };
+  if (k === "c") { const cz = parseCloze(c.tg); return { dir: "Lückensatz", cloze: cz, prompt: cz.text, hint: c.de, sayAns: fillCloze(c.tg) }; }
   const tense = k.slice(2), t = L.tenses.find((x) => x.n === tense) || { n: tense };
   const labels = tenseLabels(L, t), forms = (c.tables && c.tables[tense]) || [];
-  return { dir: tense, prompt: c.tg, hint: c.de, table: { labels, forms, given: t.given || [] }, sayAns: forms.map((f, i) => (labels[i] && !t.given ? `${labels[i].split("/")[0]} ${f}` : f)).join(", ") };
+  return { dir: tense, prompt: c.tg, hint: c.de, table: { labels, forms, given: t.given || [] }, sayAns: forms.map((f, i) => (labels[i] && !t.given ? `${labels[i].split("/")[0]} ${f}` : f)).filter((x) => x.trim()).join(", ") };
 }
+const fillCloze = (s) => String(s).replace(/\{\{(.+?)\}\}/g, "$1");
 function choicesFor(c, k) {
   let right, cands;
-  const same = state.cards.filter((x) => x.lang === c.lang && x.id !== c.id && (k === "c" ? x.type === "cloze" : x.type !== "cloze"));
+  const same = state.cards.filter((x) => x.lang === c.lang && x.id !== c.id && (k === "c" ? x.type === "cloze" : x.type !== "cloze" && x.de));
   if (k === "c") {
     const cz = parseCloze(c.tg); if (cz.gaps.length !== 1) return null;
     right = cz.gaps[0];
     cands = same.flatMap((x) => parseCloze(x.tg).gaps.map((g) => ({ t: g, s: (x.topic === c.topic ? 2 : 0) + Math.random() })));
   } else {
     const field = k === "f" ? "tg" : "de"; right = c[field];
-    cands = same.map((x) => ({ t: x[field], s: (x.pos === c.pos ? 2 : 0) + (x.type === c.type ? 1 : 0) + (x.topic === c.topic ? 1 : 0) + Math.random() * 1.5 }));
+    const sent = c.pos === "s";
+    cands = same.filter((x) => (x.pos === "s") === sent).map((x) => ({ t: x[field], s: (x.pos === c.pos ? 2 : 0) + (x.type === c.type ? 1 : 0) + (x.topic === c.topic ? 1 : 0) + (x.deck === c.deck ? 0.5 : 0) + Math.random() * 1.5 }));
   }
   const seen = new Set([normAns(right)]), pick = [];
   for (const x of cands.sort((a, b) => b.s - a.s)) { const n = normAns(x.t); if (!n || seen.has(n)) continue; seen.add(n); pick.push(x.t); if (pick.length === 3) break; }
@@ -95,10 +127,12 @@ function choicesFor(c, k) {
 }
 function modeFor(e, c) {
   const S = state.study;
-  if (S.kind === "drill") return "type";
-  const m = state.settings.mode;
+  if (e.k === "b") return S.kind === "build" ? S.o.style || "tiles" : e.mode || "tiles";
+  if (S.kind === "drill" || e.k.startsWith("d:")) return "type";
+  let m = e.mode || state.settings.mode;
   if (e.k.startsWith("t:")) return m === "choice" ? "flip" : m;
-  if (m === "choice") { if (!e.choices) e.choices = choicesFor(c, e.k); if (!e.choices) return e.k === "c" ? "type" : "flip"; }
+  if (m === "type" && e.k === "r" && isSentence(c) && S.kind !== "test") return "flip";
+  if (m === "choice") { if (!e.choices) e.choices = choicesFor(c, e.k); if (!e.choices) return e.k === "c" || S.kind === "test" ? "type" : "flip"; }
   return m;
 }
 
@@ -107,32 +141,59 @@ function showEntry() {
   const S = state.study;
   while (S.queue.length && !cardById(S.queue[0].id)) S.queue.shift();
   const e = S.queue[0];
-  if (!e) { S.stage = "done"; renderStudy(); return; }
-  S.res = null; S.typed = null; e.t0 = nowTs();
+  if (!e) { S.stage = "done"; finishSession(S); renderStudy(); return; }
+  S.res = null; S.typed = null; S.mic = null; S.ai = null; e.t0 = nowTs();
+  if (e.k === "b" && !e.tiles) prepTiles(e);
   S.stage = e.intro ? "intro" : "ask";
   renderStudy();
-  const c = cardById(e.id), L = langOf(c.lang);
-  if (state.settings.autoSpeak && S.kind !== "drill") {
-    if (S.stage === "intro") speak(c.type === "cloze" ? faceOf(c, "c", L).sayAns : c.tg, c.lang);
-    else if (e.k === "r") speak(c.tg, c.lang);
+  const c = cardById(e.id);
+  if (state.settings.autoSpeak && S.kind !== "drill" && S.kind !== "test" && e.k !== "b") {
+    if (S.stage === "intro" && e.k !== "c") speak(c.tg, c.lang, { quiet: true });
+    else if (S.stage === "ask" && e.k === "r") speak(c.tg, c.lang, { quiet: true });
   }
-  const inp = $("studyIn").querySelector("input");
-  if (inp && matchMedia("(hover: hover) and (pointer: fine)").matches) inp.focus();
-  else if (inp && S.stage === "ask") setTimeout(() => { try { inp.focus(); } catch { /* ignore */ } }, 60);
+  focusInput();
+}
+function focusInput() {
+  const inp = $("studyIn").querySelector("input[data-i], textarea[data-i]");
+  if (!inp || state.study.stage !== "ask") return;
+  if (matchMedia("(hover: hover) and (pointer: fine)").matches) inp.focus();
+  else setTimeout(() => { try { inp.focus(); } catch { /* ignore */ } }, 60);
+}
+/* Turn the card: animate out, swap content, animate in */
+function flipThen(fn) {
+  const S = state.study, card = $("studyIn").querySelector(".fcard");
+  if (!S || S.busy) return;
+  if (!card || reduceMotion()) { fn(); return; }
+  S.busy = true;
+  card.classList.add("flip-out");
+  setTimeout(() => { if (!state.study) return; S.busy = false; S.flipIn = true; fn(); }, 150);
 }
 function reveal() {
   const S = state.study, e = S.queue[0], c = cardById(e.id);
-  S.stage = "shown"; renderStudy();
-  if (state.settings.autoSpeak && S.kind !== "drill" && (e.k === "f" || e.k === "c")) speak(faceOf(c, e.k, langOf(c.lang)).sayAns, c.lang);
+  flipThen(() => {
+    S.stage = "shown"; renderStudy();
+    if (state.settings.autoSpeak && S.kind !== "drill" && (e.k === "f" || e.k === "c" || e.k === "b")) speak(e.k === "b" ? e.sent.tg : faceOf(c, e.k, langOf(c.lang)).sayAns, c.lang, { quiet: true });
+  });
+}
+function introFlip() {
+  const S = state.study;
+  if (S.stage !== "intro") return;
+  flipThen(() => { S.stage = "introBack"; renderStudy(); });
 }
 function checkTyped() {
   const S = state.study, e = S.queue[0], c = cardById(e.id), L = langOf(c.lang);
-  const inputs = [...$("studyIn").querySelectorAll("input[data-i]")];
+  if (S.stage !== "ask") return;
+  const inputs = [...$("studyIn").querySelectorAll("[data-i]")];
   const vals = inputs.map((x) => x.value);
   S.typed = vals;
-  if (e.k === "f" || e.k === "r") {
-    const fc = faceOf(c, e.k, L), r = checkAnswer(vals[0], fc.ans, { native: fc.native, articles: L.articles });
-    S.res = { parts: [r], sug: r.res === "exact" ? 3 : r.res === "close" ? 2 : 1 };
+  if (e.k === "b") {
+    const user = modeFor(e, c) === "tiles" ? e.picked.map((i) => e.tiles[i].t).join(" ") : vals[0] || "";
+    const r = compareSentence(user, e.sent.tg, L);
+    S.res = { parts: [r], sug: r.res === "exact" ? 3 : r.res === "close" ? 2 : 1, cmp: r, user };
+  } else if (e.k === "f" || e.k === "r") {
+    const fc = faceOf(c, e.k, L);
+    const r = isSentence(c) && e.k === "f" ? compareSentence(vals[0], fc.shown, L) : checkAnswer(vals[0], fc.ans, { native: fc.native, articles: fc.native ? [] : L.articles });
+    S.res = { parts: [r], sug: r.res === "exact" ? 3 : r.res === "close" ? 2 : 1, cmp: r.toks ? r : null, user: vals[0] };
   } else if (e.k === "c") {
     const gaps = parseCloze(c.tg).gaps, parts = gaps.map((g, i) => checkAnswer(vals[i] || "", g, { articles: L.articles }));
     S.res = { parts, sug: sugOf(parts) };
@@ -148,29 +209,42 @@ function checkTyped() {
 const sugOf = (parts) => { const bad = parts.filter((p) => p.res === "wrong").length, close = parts.filter((p) => p.res === "close").length; return bad === 0 && close === 0 ? 3 : bad === 0 || (bad === 1 && parts.length >= 4) ? 2 : 1; };
 function chooseOption(idx) {
   const S = state.study, e = S.queue[0], c = cardById(e.id), L = langOf(c.lang);
-  const fc0 = e.k === "c" ? null : faceOf(c, e.k, L), right = e.k === "c" ? parseCloze(c.tg).gaps[0] : (fc0.shown || fc0.ans), pickd = e.choices[idx];
+  if (S.stage !== "ask" || !e.choices) return;
+  const fc0 = e.k === "c" ? null : faceOf(c, e.k, L), right = e.k === "c" ? parseCloze(c.tg).gaps[0] : (e.k === "f" ? fc0.shown : fc0.ans), pickd = e.choices[idx];
   const ok = normAns(pickd) === normAns(right);
   S.res = { chose: idx, parts: [{ res: ok ? "exact" : "wrong" }], sug: ok ? 3 : 1 };
   reveal();
 }
-function grade(g) {
-  const S = state.study, e = S.queue[0]; if (!e) return;
-  const c = cardById(e.id), secs = Math.min(60, Math.round((nowTs() - (e.t0 || nowTs())) / 1000));
+function dunno() {
+  const S = state.study, e = S.queue[0], c = cardById(e.id), L = langOf(c.lang);
+  let n = 1;
+  if (e.k === "c") n = parseCloze(c.tg).gaps.length;
+  if (e.k.startsWith("t:")) { const fc = faceOf(c, e.k, L); S.res = { parts: fc.table.forms.map((f, i) => (fc.table.given.includes(i) || !f ? null : { res: "wrong" })), sug: 1 }; }
+  else S.res = { parts: Array.from({ length: n }, () => ({ res: "wrong" })), sug: 1, dunno: true };
+  S.typed = [];
+  reveal();
+}
+function grade(g, override) {
+  const S = state.study, e = S.queue[0]; if (!e || S.busy) return;
+  const c = cardById(e.id), secs = Math.min(90, Math.round((nowTs() - (e.t0 || nowTs())) / 1000));
   const st = statOf(today(), c.lang, true);
-  S.history.push({ queue: S.queue.map((x) => ({ ...x })), done: S.done, correct: S.correct, missed: [...S.missed], id: c.id, k: e.k, prev: c.srs[e.k] ? { ...c.srs[e.k] } : null, code: c.lang, stat: { ...st } });
+  S.history.push({ queue: S.queue.map((x) => ({ ...x })), done: S.done, correct: S.correct, missed: [...S.missed], wrongIds: [...S.wrongIds], answers: S.answers ? S.answers.slice() : null, id: c.id, k: e.k, prev: c.srs[e.k] ? { ...c.srs[e.k] } : null, code: c.lang, stat: { ...st } });
   if (S.history.length > 30) S.history.shift();
   const key = e.id + "|" + e.k + "|" + (e.i == null ? "" : e.i);
   if (S.kind === "learn") {
     const nst = srsOptions(c.srs[e.k] || null, srsCfg(e, c))[g - 1];
-    c.srs = { ...c.srs, [e.k]: nst }; c.updated = nowTs();
+    c.srs = { ...c.srs, [e.k]: { ...nst, t: nowTs() } };
     st.r++; if (g > 1) st.ok++; if (e.isNew && !e.counted) { st.n++; e.counted = true; }
   } else st.p++;
   st.s += secs; S.secs += secs;
   S.queue.shift();
-  if (g === 1) {
-    S.missed.add(key);
-    const back = { ...e, isNew: false, fresh: true, intro: false, choices: null, again: (e.again || 0) + 1 };
-    if (S.kind === "drill") { S.done++; }
+  if (S.kind === "test") {
+    S.answers.push({ id: c.id, k: e.k, ok: g > 1, override: !!override });
+    S.done++; if (g > 1) S.correct++; else { S.missed.add(key); S.wrongIds.add(c.id); }
+  } else if (g === 1) {
+    S.missed.add(key); S.wrongIds.add(c.id);
+    const back = { ...e, isNew: false, fresh: true, intro: false, choices: null, tiles: null, picked: null, again: (e.again || 0) + 1 };
+    if (S.kind === "drill" || (S.kind === "build" && e.again)) S.done++;
     else S.queue.splice(Math.min(S.queue.length, 3 + Math.floor(Math.random() * 2)), 0, back);
   } else { S.done++; if (!S.missed.has(key)) S.correct++; }
   save();
@@ -188,8 +262,55 @@ function undoStudy() {
   const c = cardById(h.id);
   if (c) { const srs = { ...c.srs }; if (h.prev) srs[h.k] = h.prev; else delete srs[h.k]; c.srs = srs; }
   const st = statOf(today(), h.code, true); Object.assign(st, h.stat);
-  S.queue = h.queue; S.done = h.done; S.correct = h.correct; S.missed = new Set(h.missed);
-  save(); S.res = null; S.stage = "ask"; S.queue[0].t0 = nowTs(); renderStudy();
+  S.queue = h.queue; S.done = h.done; S.correct = h.correct; S.missed = new Set(h.missed); S.wrongIds = new Set(h.wrongIds);
+  if (h.answers) S.answers = h.answers;
+  const e = S.queue[0]; e.picked = []; e.t0 = nowTs();
+  save(); S.res = null; S.mic = null; S.stage = "ask"; renderStudy();
+}
+function finishSession(S) {
+  if (S.kind !== "test" || S.saved || !S.done) return;
+  S.saved = true;
+  const pct = Math.round(S.correct / S.done * 100), key = `${S.o.lang}|${S.o.deck}`;
+  if (S.o.deck != null) { (state.tests[key] = state.tests[key] || []).push({ d: dayKey(today()), at: nowTs(), s: pct, n: S.done }); if (state.tests[key].length > 30) state.tests[key].shift(); save(); }
+}
+
+/* ---------- Sentence tools ---------- */
+const wordCount = (s) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
+const looksSentence = (t) => wordCount(t) >= 3 && /[.?!…]["»”]?$/.test(String(t).trim());
+const tokSplit = (s) => String(s || "").replace(/[¿¡«»“”„"]/g, "").trim().split(/\s+/).map((w) => w.replace(/^[(]+|[.,;:!?…)]+$/g, "")).filter(Boolean);
+/* Word-by-word comparison with tolerance for accents and small typos */
+function compareSentence(input, target, L) {
+  const norm = (w) => normAns(w).replace(/[.,;:!?…]/g, "");
+  const u = tokSplit(input).map(norm).filter(Boolean), t = tokSplit(target).map(norm).filter(Boolean);
+  const eq = (a, b) => a === b ? 2 : (bareAns(a) === bareAns(b) || (b.length >= 4 && lev(bareAns(a), bareAns(b)) <= 1)) ? 1 : 0;
+  const n = u.length, m = t.length, D = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) D[i][j] = eq(u[i], t[j]) ? 1 + D[i + 1][j + 1] : Math.max(D[i + 1][j], D[i][j + 1]);
+  const toks = [], hitT = new Array(m).fill(0);
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    const q = eq(u[i], t[j]);
+    if (q && D[i][j] === 1 + D[i + 1][j + 1]) { toks.push({ w: tokSplit(input)[i] || u[i], st: q === 2 ? "ok" : "close" }); hitT[j] = q; i++; j++; }
+    else if (D[i + 1][j] >= D[i][j + 1]) { toks.push({ w: tokSplit(input)[i] || u[i], st: "bad" }); i++; }
+    else j++;
+  }
+  while (i < n) { toks.push({ w: tokSplit(input)[i] || u[i], st: "bad" }); i++; }
+  const tt = tokSplit(target), missing = tt.filter((_, k) => !hitT[k]);
+  const bad = toks.filter((x) => x.st === "bad").length, close = toks.filter((x) => x.st === "close").length;
+  const res = !n ? "wrong" : !bad && !missing.length ? (close ? "close" : "exact") : "wrong";
+  return { res, why: close && res === "close" ? "accent" : "", toks, missing, tHit: hitT, tToks: tt };
+}
+function prepTiles(e) {
+  const toks = tokSplit(e.sent.tg), have = new Set(toks.map((t) => normAns(t)));
+  const extra = [];
+  if (toks.length >= 3) {
+    const bank = sentenceBank(e.lang).filter((s) => s.tg !== e.sent.tg);
+    for (const s of shuffle(bank.slice())) {
+      for (const w of tokSplit(s.tg)) { const n = normAns(w); if (!have.has(n) && w.length <= 12 && !extra.some((x) => normAns(x) === n)) { extra.push(w); break; } }
+      if (extra.length >= (toks.length >= 6 ? 3 : 2)) break;
+    }
+  }
+  e.tiles = shuffle(toks.concat(extra).map((t) => ({ t })));
+  e.picked = [];
 }
 
 /* ---------- Rendering ---------- */
@@ -199,66 +320,94 @@ function studyTop(S) {
     <button class="mbtn" data-action="study-close" aria-label="Beenden">✕</button>
     <div class="st-prog" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${S.done}"><span style="width:${pct.toFixed(1)}%"></span></div>
     <span class="st-count"><b>${num(S.done)}</b> / ${num(total)}</span>
-    <button class="mbtn" data-action="study-undo" aria-label="Rückgängig"${S.history.length ? "" : " disabled"}>↶</button>
+    <button class="mbtn" data-action="study-undo" aria-label="Rückgängig"${S.history.length && S.kind !== "test" ? "" : " disabled"}>↶</button>
   </div>`;
+}
+/* Big speaker, slow speaker and (on the answer side) the microphone */
+function sayRow(text, back) {
+  if (!text || (!canSpeak() && !(back && canListen()))) return "";
+  return `<div class="say">${canSpeak() ? `<button class="say-big" data-action="say" data-arg="${esc(text)}" aria-label="Anhören">${ICON_SPEAK_BIG}</button><button class="say-small" data-action="say-slow" data-arg="${esc(text)}" aria-label="Langsam anhören">${ICON_SLOW}</button>` : ""}${back && canListen() ? `<button class="say-small mic" data-action="mic" data-arg="${esc(text)}" aria-label="Nachsprechen und prüfen">${ICON_MIC}</button>` : ""}</div>${back ? micHTML() : ""}`;
+}
+function micHTML() {
+  const S = state.study, m = S && S.mic;
+  if (!m) return `<div class="mic-res" id="micRes" hidden></div>`;
+  if (m.state === "listen") return `<div class="mic-res" id="micRes"><span class="pulse"></span>Sprich jetzt …</div>`;
+  if (m.error) return `<div class="mic-res" id="micRes">${esc(m.error)}</div>`;
+  const words = tokSplit(m.target);
+  const verdict = m.score >= 0.9 ? ["ok", "Sehr gut verstanden!"] : m.score >= 0.6 ? ["close", "Fast – die rot markierten Wörter nochmal üben"] : ["bad", "Nicht verstanden – hör es dir an und versuch es nochmal"];
+  return `<div class="mic-res" id="micRes"><b class="fc-res ${verdict[0]}">${verdict[1]}</b><span class="mic-words">${words.map((w, i) => `<span class="${m.hit[i] ? "pos" : "neg"}">${esc(w)}</span>`).join(" ")}</span><small>Gehört: „${esc(m.heard || "–")}“</small></div>`;
+}
+function exampleHTML(c) {
+  let h = "";
+  if (c.ex && c.type !== "cloze") h += `<div class="fc-ex"><div class="fc-ex-row"><span>${esc(c.ex)}</span>${canSpeak() ? `<button class="say-mini" data-action="say" data-arg="${esc(c.ex)}" aria-label="Beispiel anhören">${ICON_SPEAK}</button>` : ""}</div>${c.exDe ? `<small>${esc(c.exDe)}</small>` : ""}</div>`;
+  if (c.note) h += `<div class="fc-note">${esc(c.note)}</div>`;
+  return h;
 }
 function tableGrid(fc, mode, res, typed) {
   const { labels, forms, given } = fc.table;
   let k = 0;
+  const ask = forms.map((f, i) => (f && !given.includes(i) ? i : -1)).filter((i) => i >= 0);
   return `<div class="conj">${forms.map((f, i) => {
     if (!f && !given.includes(i)) return "";
     const lab = `<span class="p">${esc(labels[i] || "")}</span>`;
     if (given.includes(i)) return `${lab}<span class="f">${esc(f)}</span>`;
-    if (mode === "ask") return `${lab}<input data-i="${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="${k++ === forms.length - 1 ? "done" : "next"}" aria-label="${esc(labels[i] || "Form")}">`;
+    if (mode === "ask") return `${lab}<input data-i="${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="${++k === ask.length ? "done" : "next"}" aria-label="${esc(labels[i] || "Form")}">`;
     const p = res && res.parts[i], cls = p ? (p.res === "exact" ? "ok" : p.res === "close" ? "close" : "bad") : "";
-    const yours = p && p.res !== "exact" && typed ? typed[[...forms.keys()].filter((j) => !given.includes(j) && (forms[j] || given.includes(j))).indexOf(i)] : "";
+    const yours = p && p.res !== "exact" && typed ? typed[ask.indexOf(i)] : "";
     return `${lab}<span class="f ${cls}">${esc(f)}${yours ? `<small>${esc(yours)}</small>` : ""}</span>`;
   }).join("")}</div>`;
 }
 function resLine(res) {
   if (!res) return "";
   const p = res.parts.filter(Boolean), bad = p.filter((x) => x.res === "wrong").length, close = p.filter((x) => x.res === "close");
+  if (res.dunno) return `<div class="fc-res bad">So geht's:</div>`;
   if (p.length > 1) return `<div class="fc-res ${bad ? "bad" : close.length ? "close" : "ok"}">${bad ? `${p.length - bad} von ${p.length} richtig` : close.length ? `Fast alles richtig${close[0].why ? " – " + WHY_TXT[close[0].why].split("– ")[1] : ""}` : "Alles richtig!"}</div>`;
   const r = p[0];
   return `<div class="fc-res ${r.res === "exact" ? "ok" : r.res === "close" ? "close" : "bad"}">${r.res === "exact" ? "Richtig!" : r.res === "close" ? WHY_TXT[r.why] || "Fast richtig" : "Leider falsch"}</div>`;
 }
+function cmpHTML(cmp) {
+  if (!cmp || !cmp.toks) return "";
+  return `<div class="cmp">${cmp.toks.map((t) => `<span class="w ${t.st}">${esc(t.w)}</span>`).join(" ")}${cmp.missing.length ? `<small>Fehlt: ${cmp.missing.map(esc).join(", ")}</small>` : ""}</div>`;
+}
+const cardWrap = (S, label, color, body, tap, extraCls) => `<div class="fcard${tap ? " tap" : ""}${S.flipIn ? " flip-in" : ""}${extraCls ? " " + extraCls : ""}"${tap ? ` data-action="${tap}"` : ""}><div class="fc-head"><span class="label" style="color:${color}">${esc(label)}</span><div class="fc-tools"><button class="mbtn" data-action="study-edit" aria-label="Karte bearbeiten">✎</button></div></div><div class="fc-body">${body}</div></div>`;
+
 function renderStudy() {
   const S = state.study, root = $("studyIn");
   if (!S) return;
   if (S.stage === "done") { root.innerHTML = doneHTML(S); return; }
   const e = S.queue[0], c = cardById(e.id), L = langOf(c.lang);
-  const tools = `<div class="fc-tools">${canSpeak() ? `<button class="mbtn" data-action="study-speak" aria-label="Vorlesen">${ICON_SPEAK}</button>` : ""}<button class="mbtn" data-action="study-edit" aria-label="Karte bearbeiten">✎</button></div>`;
-  const tag = S.kind === "practice" ? "Üben · " : S.kind === "drill" ? "Konjugation · " : e.isNew ? "Neu · " : e.again ? "Nochmal · " : "";
-  let body = "", foot = "", tap = false;
-
-  if (S.kind === "drill") {
-    const tense = e.k.slice(2), t = L.tenses.find((x) => x.n === tense) || { n: tense }, labels = tenseLabels(L, t), form = c.tables[tense][e.i];
-    const r = S.res && S.res.parts[0];
-    body = `<span class="label acc-t">${esc(tense)}</span><div class="fc-prompt">${esc(labels[e.i] || "")} …</div><div class="fc-sub">${esc(c.tg)} · ${esc(c.de)}</div>
-      ${S.stage === "ask" ? `<form id="typeForm" style="width:100%"><input class="typein" data-i="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Form"></form>`
-        : `${resLine(S.res)}<div class="fc-ans">${esc(form)}</div>${r && r.res !== "exact" && S.typed[0] ? `<div class="fc-yours">${esc(S.typed[0])}</div>` : ""}`}`;
-    foot = S.stage === "ask" ? `<div class="st-act"><button class="btn" data-action="study-dunno">Weiß nicht</button><button class="btn primary" data-action="study-check">Prüfen</button></div>`
-      : `<div class="st-act"><button class="btn primary" data-action="study-grade" data-arg="${r && r.res !== "wrong" ? 3 : 1}">Weiter ›</button></div>`;
-    root.innerHTML = `${studyTop(S)}<div class="fcard"><div class="fc-head"><span class="label" style="color:${L.color}">${esc(L.name)} · Konjugation</span>${tools}</div><div class="fc-body">${body}</div></div>${foot}<p class="kbd">Enter: prüfen / weiter</p>`;
-    return;
+  const kindTag = S.kind === "practice" ? "Üben · " : S.kind === "test" ? "Test · " : S.kind === "build" ? "Sätze bauen · " : e.isNew ? "Neu · " : e.again ? "Nochmal · " : "";
+  let html;
+  if (e.k === "b") html = renderBuild(S, e, c, L, kindTag);
+  else if (e.k.startsWith("d:")) html = renderDrill(S, e, c, L, kindTag);
+  else if (S.stage === "intro" || S.stage === "introBack") html = renderIntro(S, e, c, L);
+  else html = renderAsk(S, e, c, L, kindTag);
+  S.flipIn = false;
+  root.innerHTML = studyTop(S) + html;
+}
+function renderIntro(S, e, c, L) {
+  const fc = faceOf(c, e.k, L), back = S.stage === "introBack";
+  let body;
+  if (!back) {
+    if (fc.table) body = `<span class="label acc-t">${esc(fc.dir)}</span><div class="fc-prompt">${esc(c.tg)}</div>${sayRow(c.tg)}`;
+    else if (fc.cloze) body = `<div class="cloze">${esc(c.tg).replace(/\{\{(.+?)\}\}/g, '<span class="gap">…</span>')}</div><div class="fc-sub">${esc(c.de)}</div>`;
+    else body = `<div class="fc-prompt${c.tg.length > 28 ? " long" : ""}">${esc(c.tg)}</div>${sayRow(c.tg)}`;
+    body += `<div class="fc-tap">Tippen zum Umdrehen</div>`;
+    return cardWrap(S, `Neu · ${L.name}`, L.color, body, "intro-flip") + `<div class="st-act"><button class="btn primary" data-action="intro-flip">Umdrehen</button></div><p class="kbd">Leertaste: umdrehen</p>`;
   }
-
-  const fc = faceOf(c, e.k, L);
-  if (S.stage === "intro") {
-    if (fc.table) body = `<div class="fc-prompt">${esc(c.tg)}</div><div class="fc-sub">${esc(c.de)}</div><span class="label acc-t">${esc(fc.dir)}</span>${tableGrid(fc, "shown")}`;
-    else if (fc.cloze) body = `<div class="cloze">${esc(c.tg).replace(/\{\{(.+?)\}\}/g, '<span class="gap">$1</span>')}</div><div class="fc-sub">${esc(c.de)}</div>`;
-    else body = `<div class="fc-ans" style="font-size:clamp(30px,8vw,42px)">${esc(c.tg)}</div><div class="fc-line"></div><div class="fc-prompt long">${esc(c.de)}</div>${fc.hint ? `<div class="fc-sub">${esc(fc.hint)}</div>` : ""}`;
-    body += extrasHTML(c);
-    foot = `<div class="st-act"><button class="btn" data-action="intro-known">Kenne ich schon</button><button class="btn primary" data-action="intro-next">Merken ›</button></div>`;
-    root.innerHTML = `${studyTop(S)}<div class="fcard"><div class="fc-head"><span class="label" style="color:${L.color}">Neu · ${esc(L.name)}</span>${tools}</div><div class="fc-body">${body}</div></div>${foot}<p class="kbd">Enter: merken · K: kenne ich schon</p>`;
-    return;
-  }
-
-  const mode = modeFor(e, c), shown = S.stage === "shown", res = S.res;
+  if (fc.table) body = `<div class="fc-front">${esc(c.tg)} · ${esc(c.de)}</div><span class="label acc-t">${esc(fc.dir)}</span>${tableGrid(fc, "shown")}${sayRow(fc.sayAns, true)}`;
+  else if (fc.cloze) body = `<div class="cloze">${esc(c.tg).replace(/\{\{(.+?)\}\}/g, '<span class="gap">$1</span>')}</div><div class="fc-sub">${esc(c.de)}</div>${sayRow(fc.sayAns, true)}`;
+  else body = `<div class="fc-front">${esc(c.tg)}</div><div class="fc-ans big">${esc(c.de)}</div>${sayRow(c.tg, true)}`;
+  body += exampleHTML(c);
+  return cardWrap(S, `Neu · ${L.name}`, L.color, body) + `<div class="st-act"><button class="btn" data-action="intro-known">Kenne ich schon</button><button class="btn primary" data-action="intro-next">Merken ›</button></div><p class="kbd">Enter: merken · K: kenne ich schon</p>`;
+}
+function renderAsk(S, e, c, L, kindTag) {
+  const fc = faceOf(c, e.k, L), mode = modeFor(e, c), shown = S.stage === "shown", res = S.res;
+  let body = "", foot = "";
   if (fc.table) {
-    body = `<div class="fc-prompt">${esc(c.tg)}</div><div class="fc-sub">${esc(c.de)}</div><span class="label acc-t">${esc(fc.dir)}</span>`;
-    if (!shown) body += mode === "type" ? `<form id="typeForm" style="width:100%">${tableGrid(fc, "ask")}<button type="submit" hidden></button></form>` : `<div class="fc-tap">Tippen zum Aufdecken</div>`;
-    else body += `${resLine(res)}${tableGrid(fc, "shown", res, S.typed)}`;
+    body = shown ? `<div class="fc-front">${esc(c.tg)} · ${esc(c.de)}</div><span class="label acc-t">${esc(fc.dir)}</span>` : `<span class="label acc-t">${esc(fc.dir)}</span><div class="fc-prompt">${esc(c.tg)}</div><div class="fc-sub">${esc(c.de)}</div>`;
+    if (!shown) body += mode === "type" ? `<form id="typeForm" style="width:100%">${tableGrid(fc, "ask")}<button type="submit" hidden></button></form>` : `${sayRow(c.tg)}<div class="fc-tap">Tippen zum Umdrehen</div>`;
+    else body += `${resLine(res)}${tableGrid(fc, "shown", res, S.typed)}${sayRow(fc.sayAns, true)}`;
   } else if (fc.cloze) {
     const gaps = fc.cloze.gaps;
     let gi = 0;
@@ -267,33 +416,74 @@ function renderStudy() {
     if (!shown) {
       if (mode === "type") body += `<form id="typeForm" style="width:100%;display:flex;flex-direction:column;gap:8px">${gaps.map((_, i) => `<input class="typein" data-i="${i}" placeholder="${gaps.length > 1 ? `Lücke ${i + 1}` : "Lücke"}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Lücke ${i + 1}">`).join("")}<button type="submit" hidden></button></form>`;
       else if (mode === "choice") body += choicesHTML(e, null);
-      else body += `<div class="fc-tap">Tippen zum Aufdecken</div>`;
+      else body += `<div class="fc-tap">Tippen zum Umdrehen</div>`;
     } else {
       body += resLine(res);
       if (mode === "choice") body += choicesHTML(e, res, gaps[0]);
       else if (res && S.typed) body += res.parts.map((p, i) => (p.res !== "exact" && S.typed[i] ? `<div class="fc-yours">${esc(S.typed[i])}</div>` : "")).join("");
+      body += sayRow(fc.sayAns, true);
     }
-  } else {
+  } else if (!shown) {
     body = `<div class="fc-prompt${fc.prompt.length > 28 ? " long" : ""}">${esc(fc.prompt)}</div>${fc.hint ? `<div class="fc-sub">${esc(fc.hint)}</div>` : ""}`;
-    if (!shown) {
-      if (mode === "type") body += `<form id="typeForm" style="width:100%"><input class="typein" data-i="0" placeholder="${fc.native ? "Auf Deutsch" : "Auf " + esc(L.name)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Antwort"></form>`;
-      else if (mode === "choice") body += choicesHTML(e, null);
-      else body += `<div class="fc-tap">Tippen zum Umdrehen</div>`;
-    } else {
-      body += `<div class="fc-line"></div>`;
-      if (mode === "choice") body += `${resLine(res)}${choicesHTML(e, res, fc.shown || fc.ans)}`;
-      else body += `${resLine(res)}<div class="fc-ans">${esc(fc.shown || fc.ans)}</div>${res && res.parts[0].res !== "exact" && S.typed && S.typed[0] ? `<div class="fc-yours">${esc(S.typed[0])}</div>` : ""}`;
+    if (e.k === "r") body += sayRow(c.tg);
+    if (mode === "type") body += `<form id="typeForm" style="width:100%"><input class="typein" data-i="0" placeholder="${fc.native ? "Auf Deutsch" : "Auf " + esc(e.k === "f" ? L.name : meaningName(c))}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Antwort"></form>`;
+    else if (mode === "choice") body += choicesHTML(e, null);
+    else body += `<div class="fc-tap">Tippen zum Umdrehen</div>`;
+  } else {
+    body = `<div class="fc-front">${esc(fc.prompt)}</div>`;
+    if (mode === "choice") body += `${resLine(res)}${choicesHTML(e, res, e.k === "f" ? fc.shown : fc.ans)}`;
+    else {
+      body += resLine(res);
+      if (e.k === "f") body += `<div class="fc-ans big">${esc(fc.shown)}</div>`;
+      else body += `<div class="fc-ans big">${esc(fc.ans)}</div>`;
+      if (res && res.cmp) body += cmpHTML(res.cmp);
+      else if (res && res.parts[0].res !== "exact" && S.typed && S.typed[0]) body += `<div class="fc-yours">${esc(S.typed[0])}</div>`;
     }
+    body += sayRow(c.tg, true);
   }
-  if (shown) body += extrasHTML(c, e.k);
-  tap = !shown && mode === "flip";
-
+  if (shown) body += exampleHTML(c);
+  const tap = !shown && mode === "flip" ? "study-reveal" : "";
   if (!shown) {
     if (mode === "type") foot = `<div class="st-act"><button class="btn" data-action="study-dunno">Weiß nicht</button><button class="btn primary" data-action="study-check">Prüfen</button></div>`;
-    else if (mode === "flip") foot = `<div class="st-act"><button class="btn primary" data-action="study-reveal">Aufdecken</button></div>`;
-  } else foot = gradeButtons(S, e, c, res);
-  const keys = !shown ? (mode === "flip" ? "Leertaste: aufdecken" : mode === "choice" ? "1–4: Antwort wählen" : "Enter: prüfen") : S.kind === "learn" ? "1–4: bewerten · Enter: Vorschlag" : "1: nochmal · Enter: weiter";
-  root.innerHTML = `${studyTop(S)}<div class="fcard${tap ? " tap" : ""}"${tap ? ' data-action="study-reveal"' : ""}><div class="fc-head"><span class="label" style="color:${L.color}">${esc(tag + fc.dir)}</span>${tools}</div><div class="fc-body">${body}</div></div>${foot}<p class="kbd">${keys}</p>`;
+    else if (mode === "flip") foot = `<div class="st-act"><button class="btn primary" data-action="study-reveal">Umdrehen</button></div>`;
+  } else foot = gradeButtons(S, e, c, res, mode);
+  const keys = !shown ? (mode === "flip" ? "Leertaste: umdrehen" : mode === "choice" ? "1–4: Antwort wählen" : "Enter: prüfen") : S.kind === "learn" ? "1–4: bewerten · Enter: Vorschlag" : "Enter: weiter";
+  return cardWrap(S, kindTag + fc.dir, L.color, body, tap) + foot + `<p class="kbd">${keys}</p>`;
+}
+function renderDrill(S, e, c, L, kindTag) {
+  const tense = e.k.slice(2), t = L.tenses.find((x) => x.n === tense) || { n: tense }, labels = tenseLabels(L, t), form = c.tables[tense][e.i];
+  const r = S.res && S.res.parts[0], shown = S.stage === "shown";
+  const body = `<span class="label acc-t">${esc(tense)}</span><div class="fc-prompt">${esc(labels[e.i] || "")} …</div><div class="fc-sub">${esc(c.tg)} · ${esc(c.de)}</div>
+    ${!shown ? `<form id="typeForm" style="width:100%"><input class="typein" data-i="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Form"></form>`
+      : `${resLine(S.res)}<div class="fc-ans big">${esc(form)}</div>${r && r.res !== "exact" && S.typed && S.typed[0] ? `<div class="fc-yours">${esc(S.typed[0])}</div>` : ""}${sayRow(`${(labels[e.i] || "").split("/")[0]} ${form}`, true)}`}`;
+  const foot = !shown ? `<div class="st-act"><button class="btn" data-action="study-dunno">Weiß nicht</button><button class="btn primary" data-action="study-check">Prüfen</button></div>`
+    : nextButtons(S, r && r.res !== "wrong");
+  return cardWrap(S, `${kindTag || ""}${L.name} · Konjugation`, L.color, body) + foot + `<p class="kbd">Enter: prüfen / weiter</p>`;
+}
+function renderBuild(S, e, c, L, kindTag) {
+  const mode = modeFor(e, c), shown = S.stage === "shown", res = S.res;
+  let body = `<span class="label acc-t">Übersetze ins ${esc(L.name)}e</span><div class="fc-prompt long">${esc(e.sent.de)}</div>`;
+  let foot;
+  if (!shown) {
+    if (mode === "tiles") {
+      const end = (e.sent.tg.match(/[.?!…]+$/) || [""])[0];
+      body += `<div class="tiles-ans" aria-label="Dein Satz">${e.picked.map((ti, j) => `<button class="tile-w on" data-action="tile-out" data-arg="${j}">${esc(e.tiles[ti].t)}</button>`).join("") || `<span class="hint">Tippe die Wörter in der richtigen Reihenfolge an</span>`}${e.picked.length && end ? `<span class="tile-end">${esc(end)}</span>` : ""}</div>
+        <div class="tiles-pool">${e.tiles.map((x, i) => `<button class="tile-w${e.picked.includes(i) ? " used" : ""}" data-action="tile-in" data-arg="${i}"${e.picked.includes(i) ? " disabled" : ""}>${esc(x.t)}</button>`).join("")}</div>`;
+    } else body += `<form id="typeForm" style="width:100%"><textarea class="typein area" data-i="0" rows="2" placeholder="Auf ${esc(L.name)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Dein Satz"></textarea></form>`;
+    foot = `<div class="st-act"><button class="btn" data-action="study-dunno">Weiß nicht</button><button class="btn primary" data-action="study-check"${mode === "tiles" && !e.picked.length ? " disabled" : ""}>Prüfen</button></div>`;
+  } else {
+    body += resLine(res);
+    if (res && res.cmp && res.user && !(S.ai && S.ai.ok)) body += cmpHTML(res.cmp);
+    body += `<div class="fc-ans big">${esc(e.sent.tg)}</div>${sayRow(e.sent.tg, true)}`;
+    if (S.ai) body += `<div class="ai-res">${S.ai.loading ? `<span class="pulse"></span>KI prüft …` : S.ai.error ? esc(S.ai.error) : `<b class="fc-res ${S.ai.ok ? "ok" : "bad"}">${S.ai.ok ? "Laut KI richtig" : "Laut KI nicht ganz richtig"}</b>${S.ai.corrected ? `<div>${esc(S.ai.corrected)}</div>` : ""}<small>${esc(S.ai.explanation || "")}</small>`}</div>`;
+    const canAi = aiOn() && res && res.user && res.parts[0].res !== "exact" && !S.ai;
+    foot = nextButtons(S, res && res.parts[0].res !== "wrong", canAi);
+  }
+  return cardWrap(S, kindTag + `${L.name} · Satz`, L.color, body) + foot + `<p class="kbd">${shown ? "Enter: weiter" : "Enter: prüfen"}</p>`;
+}
+function nextButtons(S, ok, canAi) {
+  const typed = S.res && !S.res.dunno && S.res.parts[0] && S.res.parts[0].res === "wrong";
+  return `<div class="st-act">${canAi ? `<button class="btn" data-action="ai-check">KI fragen</button>` : ""}${!ok && typed ? `<button class="btn" data-action="study-override">War richtig ✓</button>` : ""}<button class="btn primary" data-action="study-grade" data-arg="${ok ? 3 : 1}">Weiter ›</button></div>`;
 }
 function choicesHTML(e, res, right) {
   return `<div class="choices">${e.choices.map((t, i) => {
@@ -302,58 +492,70 @@ function choicesHTML(e, res, right) {
     return `<button class="choice${cls}" data-action="study-choose" data-arg="${i}"${res ? " disabled" : ""}><span class="hint" style="margin-right:8px">${i + 1}</span>${esc(t)}</button>`;
   }).join("")}</div>`;
 }
-function extrasHTML(c, k) {
-  let h = "";
-  if (k === "r" || k === "f" || !k) { /* example belongs to word cards */ }
-  if (c.ex && c.type !== "cloze") h += `<div class="fc-ex">${esc(c.ex)}${c.exDe ? `<small>${esc(c.exDe)}</small>` : ""}</div>`;
-  if (c.note) h += `<div class="fc-note">${esc(c.note)}</div>`;
-  return h;
-}
-function gradeButtons(S, e, c, res) {
+function gradeButtons(S, e, c, res, mode) {
   const sug = res ? res.sug : 0;
-  if (S.kind === "practice") return `<div class="st-act"><button class="btn${sug === 1 ? " primary" : ""}" data-action="study-grade" data-arg="1">Nochmal</button><button class="btn${sug !== 1 ? " primary" : ""}" data-action="study-grade" data-arg="3">Gewusst ✓</button></div>`;
+  if (S.kind === "test") return nextButtons(S, sug > 1);
+  if (S.kind !== "learn") return `<div class="st-act"><button class="btn${sug === 1 ? " primary" : ""}" data-action="study-grade" data-arg="1">Nochmal</button><button class="btn${sug !== 1 ? " primary" : ""}" data-action="study-grade" data-arg="3">Gewusst ✓</button></div>`;
   const opts = srsOptions(c.srs[e.k] || null, srsCfg(e, c));
   return `<div class="grades">${opts.map((o, i) => `<button class="g${i + 1}${sug === i + 1 ? " sug" : ""}" data-action="study-grade" data-arg="${i + 1}"><b>${GRADE_TXT[i]}</b><small>${esc(fmtIvl(o))}</small></button>`).join("")}</div>`;
 }
 function doneHTML(S) {
   const mins = Math.max(1, Math.round(S.secs / 60)), pct = S.done ? Math.round(S.correct / S.done * 100) : 0, stk = streakInfo();
-  let more = "";
+  let more = "", extra = "";
   if (S.kind === "learn") {
     const d = buildQueue({ ...S.o, countOnly: true });
     more = d.total ? `<button class="btn primary" data-action="study-again">Weiter lernen (${num(d.total)})</button>` : d.moreNew ? `<button class="btn primary" data-action="study-more">+ 10 neue Karten</button>` : "";
-  } else more = `<button class="btn primary" data-action="study-repeat">Noch eine Runde</button>`;
+  } else more = `<button class="btn primary" data-action="study-repeat">${S.kind === "test" ? "Neuer Test" : "Noch eine Runde"}</button>`;
+  if (S.wrongIds.size && S.kind !== "learn") more += `<button class="btn" data-action="study-mistakes">Fehler üben (${S.wrongIds.size})</button>`;
+  if (S.kind === "test") {
+    const wrong = S.answers.filter((a) => !a.ok).map((a) => cardById(a.id)).filter(Boolean);
+    extra = wrong.length ? `<section class="sec"><div class="sechead"><h2 class="sectitle">Fehler</h2></div>${wrong.map((c) => `<div class="row nochev nobadge"><span class="main"><span class="t1">${esc(c.type === "cloze" ? fillCloze(c.tg) : c.tg)}</span><span class="t2">${esc(c.de)}</span></span><span></span></div>`).join("")}</section>` : "";
+  }
+  const title = S.kind === "test" ? (pct >= 90 ? "Sehr gut!" : pct >= 75 ? "Gut!" : pct >= 60 ? "Bestanden" : "Noch nicht ganz") : pct >= 90 ? "Stark!" : pct >= 70 ? "Geschafft!" : "Dranbleiben!";
+  const label = { learn: "Sitzung beendet", drill: "Konjugation", test: `Test · ${S.o.deck || ""}`, build: "Sätze bauen", practice: "Übungsrunde" }[S.kind];
   return `<div class="st-top"><button class="mbtn" data-action="study-close" aria-label="Schließen">✕</button><span></span><span></span><span></span></div>
     <div class="st-done">
-      <span class="label">${S.kind === "learn" ? "Sitzung beendet" : S.kind === "drill" ? "Konjugation" : "Übungsrunde"}</span>
-      <h1 class="vtitle">${pct >= 90 ? "Stark!" : pct >= 70 ? "Geschafft!" : "Dranbleiben!"}</h1>
+      <span class="label">${esc(label)}</span>
+      <h1 class="vtitle">${title}</h1>
       <section class="stats" aria-label="Ergebnis">
-        <div class="stat"><span class="label">Karten</span><span class="v">${num(S.done)}</span></div>
-        <div class="stat"><span class="label">Auf Anhieb</span><span class="v ${pct >= 80 ? "pos" : pct < 60 ? "neg" : ""}">${pct} %</span></div>
+        <div class="stat"><span class="label">${S.kind === "test" ? "Fragen" : S.kind === "build" ? "Sätze" : "Karten"}</span><span class="v">${num(S.done)}</span></div>
+        <div class="stat"><span class="label">${S.kind === "test" ? "Ergebnis" : "Auf Anhieb"}</span><span class="v ${pct >= 80 ? "pos" : pct < 60 ? "neg" : ""}">${pct} %</span></div>
         <div class="stat"><span class="label">Zeit</span><span class="v">${mins} Min.</span></div>
       </section>
       ${stk.cur ? `<p class="hint">🔥 ${plural(stk.cur, "Tag", "Tage")} in Folge gelernt${stk.cur >= stk.best && stk.cur > 1 ? " – neuer Rekord!" : ""}</p>` : ""}
       <div class="btnrow">${more}<button class="btn" data-action="study-close">Fertig</button></div>
+      ${extra}
       ${S.kind === "learn" ? `<p class="hint">Die nächsten Wiederholungen plant PLM automatisch. Komm morgen wieder – kurze tägliche Runden bringen am meisten.</p>` : ""}
     </div>`;
 }
-function studySpeak() {
-  const S = state.study, e = S.queue[0]; if (!e) return;
-  const c = cardById(e.id), L = langOf(c.lang);
-  if (e.k.startsWith("d:")) { speak(S.stage === "shown" ? c.tables[e.k.slice(2)][e.i] : c.tg, c.lang); return; }
-  const fc = faceOf(c, e.k, L);
-  if (fc.table) speak(S.stage === "ask" ? c.tg : fc.sayAns, c.lang);
-  else if (fc.cloze) speak(fc.sayAns, c.lang);
-  else speak(c.tg, c.lang);
+
+/* ---------- Pronunciation check ---------- */
+function micStart(target) {
+  const S = state.study; if (!S) return;
+  const e = S.queue[0], code = e ? e.lang : null;
+  S.mic = { state: "listen", target };
+  const box = $("micRes"); if (box) { box.hidden = false; box.outerHTML = micHTML(); }
+  listen(code, (r) => {
+    if (!state.study) return;
+    if (r.error) {
+      const msg = r.error === "not-allowed" || r.error === "service-not-allowed" ? "Kein Zugriff aufs Mikrofon – erlaube es in den Einstellungen bzw. schalte „Diktieren“ ein." : r.error === "no-speech" ? "Nichts gehört – tippe aufs Mikrofon und sprich direkt los." : r.error === "unsupported" ? "Spracherkennung wird hier nicht unterstützt." : "Spracherkennung gerade nicht verfügbar – versuch es nochmal.";
+      S.mic = { error: msg, target };
+    } else { const m = speechMatch(target, r.alts); S.mic = { target, score: m.score, heard: m.heard, hit: m.hit }; }
+    const b = $("micRes"); if (b) b.outerHTML = micHTML();
+  });
 }
+
+/* ---------- Keyboard ---------- */
 function studyKey(ev) {
   const S = state.study;
   if (!S || $("study").hidden || !$("cardSheet").hidden || !$("formSheet").hidden) return;
-  const k = ev.key, inInput = ev.target && ev.target.tagName === "INPUT";
+  const k = ev.key, inInput = ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA");
   if (k === "Escape") { closeStudy(); return; }
   if (S.stage === "done") { if (k === "Enter") { ev.preventDefault(); closeStudy(); } return; }
   const e = S.queue[0], c = e && cardById(e.id);
   if (!c) return;
-  if (S.stage === "intro") {
+  if (S.stage === "intro") { if (k === " " || k === "Enter") { ev.preventDefault(); introFlip(); } return; }
+  if (S.stage === "introBack") {
     if (k === "Enter" || k === " ") { ev.preventDefault(); introDone(false); }
     else if (k.toLowerCase() === "k" && !inInput) introDone(true);
     return;
@@ -362,16 +564,20 @@ function studyKey(ev) {
   if (S.stage === "ask") {
     if (mode === "flip" && (k === " " || k === "Enter")) { ev.preventDefault(); reveal(); }
     else if (mode === "choice" && /^[1-4]$/.test(k) && e.choices) chooseOption(Number(k) - 1);
-    else if (mode === "type" && k === "Enter" && inInput) {
-      const ins = [...$("studyIn").querySelectorAll("input[data-i]")], i = ins.indexOf(ev.target);
+    else if (k === "Enter" && (inInput || mode === "tiles")) {
+      const ins = [...$("studyIn").querySelectorAll("[data-i]")], i = ins.indexOf(ev.target);
       ev.preventDefault();
       if (i >= 0 && i < ins.length - 1) ins[i + 1].focus(); else checkTyped();
     }
     return;
   }
   if (S.stage === "shown") {
-    if (/^[1-4]$/.test(k)) { if (S.kind === "learn") grade(Number(k)); else grade(k === "1" ? 1 : 3); }
-    else if (k === "Enter" || k === " ") { ev.preventDefault(); const sg = S.res ? S.res.sug : 3; grade(S.kind === "learn" ? sg : sg === 1 ? 1 : 3); }
+    if (S.kind === "learn" && /^[1-4]$/.test(k) && !inInput) grade(Number(k));
+    else if (k === "Enter" || (k === " " && !inInput)) {
+      ev.preventDefault();
+      const sg = S.res ? S.res.sug : 3;
+      if (S.kind === "learn" && e.k !== "b" && !e.k.startsWith("d:")) grade(sg); else grade(sg === 1 ? 1 : 3);
+    }
   }
 }
 document.addEventListener("keydown", studyKey);

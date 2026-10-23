@@ -347,4 +347,155 @@ function icsDaily(hhmm, title, url, startKey) {
     `DTSTART:${d}T${t}`, "DURATION:PT10M", "RRULE:FREQ=DAILY", `SUMMARY:${title}`, url ? `URL:${url}` : "", `DESCRIPTION:Zeit für deine Karten in PLM.${url ? "\\n" + url : ""}`,
     "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${title}`, "TRIGGER:PT0M", "END:VALARM", "END:VEVENT", "END:VCALENDAR"].filter(Boolean).join("\r\n");
 }
+
+/* ================= Layout recognition (photo / PDF text → card pairs) ================= */
+const LANG_HINTS = {
+  it: { w: "il lo la i gli le un una uno di da che è e non per sono come dove sei mi ti si ci del della alla al nel con ho hai ha questo cosa anche molto ma io tu lui lei noi voi loro buongiorno grazie prego ciao scusa", end: /[aeiouàèéìòù]$/, chars: /[àèìòù]|zione|gli|gn|cch|zz/ },
+  en: { w: "the a an to of and is are you your it in on at what how do don't i my me be see good night is it's for with this that can where name hi hello bye goodbye soon tomorrow morning evening live work study speak listen visit spell repeat mean say", end: /[^aeiou]$|y$/, chars: /th|w|y|k|[a-z]'[a-z]|ck|sh|ing\b|ee|oo|ea|ou/ },
+  de: { w: "der die das den dem des ein eine einen und ist nicht ich du sie es zu mit von wie was wo bitte danke auf für im am sich", end: /[^aeiou]$|e$/, chars: /[äöüß]|sch|ung\b|ch/ },
+  es: { w: "el la los las un una de que y en es no por con para mi tu su muy", end: /[aeoos]$/, chars: /ñ|[áéíóú]|ción/ },
+  fr: { w: "le la les un une de du des et est ne pas je tu il elle nous vous", end: /e$|[^aeiou]$/, chars: /[çâêîôûëïœ]|eau|oui/ }
+};
+for (const v of Object.values(LANG_HINTS)) v.set = new Set(v.w.split(" "));
+function langScores(text, cands) {
+  const words = String(text).toLowerCase().replace(/[^\p{L}' ’]/gu, " ").split(/\s+/).filter((x) => x.length > 0);
+  const out = {};
+  for (const c of cands) {
+    const H = LANG_HINTS[c]; if (!H) { out[c] = 0; continue; }
+    let s = 0;
+    for (const w of words) { if (H.set.has(w)) s += 2; if (H.chars.test(w)) s += 1.5; if (w.length > 2 && H.end.test(w)) s += 0.5; }
+    if (c === "de" && /\b[A-ZÄÖÜ][a-zäöüß]+/.test(text.slice(1))) s += 1;
+    out[c] = s / Math.max(1, words.length);
+  }
+  return out;
+}
+const bestLang = (sc) => Object.entries(sc).sort((a, b) => b[1] - a[1])[0][0];
+/* Italian article for a noun marked (m.) / (f.) */
+function itArticle(word, g) {
+  const w = word.toLowerCase();
+  if (/^[aeiouàèéìòùh]/.test(w)) return "l'";
+  if (g === "f") return "la ";
+  if (/^(s[^aeiou]|z|gn|ps|pn|x|y|i[aeiou])/.test(w)) return "lo ";
+  return "il ";
+}
+const SEP_TOK = /^[=→⟶➝➔—–\-:>»|•·+]+$/;
+const ARTIFACT = /^[|\\/\][{}_~^°*'"`´.,;:]+$/;
+function cleanCell(t) {
+  return t.replace(/\s+/g, " ").replace(/^[^\p{L}\p{N}¿¡"'(«]+/u, "").replace(/^[b-df-hj-np-tv-z]\s+(?=\p{Lu})/u, "").replace(/[\s|•·*"“”=+→—–»-]+$/g, "").trim();
+}
+/* lines: [{ words: [{ text, x0, x1, y0, y1, conf? }] }]; o: { target, meanings: ["de","en"], width } */
+function parseLayout(lines, o) {
+  o = o || {};
+  const target = o.target || "it", others = (o.meanings || ["de", "en"]).filter((x) => x !== target), cands = [target].concat(others);
+  const W = o.width || Math.max(1, ...lines.flatMap((l) => l.words.map((w) => w.x1)));
+  // low OCR confidence is fine when the cell clearly reads as real words of one of the languages
+  const wordy = (t) => { const ws = t.split(/\s+/); return ws.every((w) => /^[\p{L}'’]{2,}[.,!?;:…]*$/u.test(w) && /[aeiouyàèéìòùäöü]/i.test(w)) && Math.max(...cands.map((k) => langScores(t, [k])[k])) >= 1; };
+  const weak = (w) => ARTIFACT.test(w.text) || (w.conf != null && w.conf < 35 && w.text.length <= 2) || w.text === "|" || (/^[Il1]$/.test(w.text) && w.conf != null && w.conf < 60);
+  // 1. clean words
+  const L = lines.map((l) => {
+    let ws = l.words.filter((w) => w.text && w.text.trim());
+    while (ws.length && weak(ws[0])) ws = ws.slice(1);
+    while (ws.length && weak(ws[ws.length - 1])) ws = ws.slice(0, -1);
+    return ws.map((w) => ({ ...w, text: w.text.replace(/[’‘]/g, "'") }));
+  }).filter((ws) => ws.length);
+  const gaps = [];
+  for (const ws of L) for (let i = 1; i < ws.length; i++) gaps.push(ws[i].x0 - ws[i - 1].x1);
+  gaps.sort((a, b) => a - b);
+  const medGap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 8;
+  const hs = L.flatMap((ws) => ws.map((w) => w.y1 - w.y0)).sort((a, b) => a - b), medH = hs.length ? hs[Math.floor(hs.length / 2)] : 12;
+  const cut = Math.max(medGap * 2.4, medH * 1.1, W * 0.022);
+  // 2. cells (split on wide gaps and on arrows/dashes)
+  const rows = L.map((ws) => {
+    const cells = []; let cur = null, sepNext = false;
+    const push = () => { if (cur && cur.words.length) cells.push(cur); cur = null; };
+    for (const w of ws) {
+      const t = w.text;
+      if (SEP_TOK.test(t)) { push(); sepNext = true; continue; }
+      const gm = /^\((m|f|m\.\/f\.|m\/f)\.?\)$/i.exec(t.replace(/[£€]/g, "f"));
+      if (gm) { const g = gm[1].toLowerCase(); if (cur) cur.g = g === "f" ? "f" : g === "m" ? "m" : "mf"; continue; }
+      if (cur && w.x0 - cur.x1 > cut) push();
+      if (!cur) { cur = { words: [], confs: [], x0: w.x0, x1: w.x1, y0: w.y0, y1: w.y1, sep: sepNext }; sepNext = false; }
+      cur.words.push(t); cur.confs.push(w.conf == null ? 90 : w.conf); cur.x1 = w.x1; cur.y0 = Math.min(cur.y0, w.y0); cur.y1 = Math.max(cur.y1, w.y1);
+    }
+    push();
+    for (const c of cells) { c.text = cleanCell(c.words.join(" ")); c.h = c.y1 - c.y0; c.conf = c.confs.reduce((a, b) => a + b, 0) / c.confs.length; }
+    return cells.filter((c) => (/\p{L}/u.test(c.text) || /^\d{1,4}$/.test(c.text)) && !c.words.some((w) => w.length > 24) && (c.conf >= 45 || (c.conf >= 20 && wordy(c.text)) || (c.text.replace(/[^\p{L}]/gu, "").length >= 4 && c.text === c.text.toUpperCase() && /^[\p{Lu}\s'"*.-]+$/u.test(c.text))));
+  }).filter((r) => r.length);
+  const allCells = rows.flat();
+  // 3. which language are the translations in? (page level)
+  for (const c of allCells) c.sc = langScores(c.text, cands);
+  const ml = others.length ? others.map((k) => [k, allCells.reduce((a, c) => a + (c.sc[k] > c.sc[target] ? c.sc[k] : 0), 0)]).sort((a, b) => b[1] - a[1])[0][0] : "de";
+  // 4. target vs. meaning per cell, smoothed by its column
+  const xs = allCells.map((c) => c.x0).sort((a, b) => a - b), tol = W * 0.03, cols = [];
+  for (const x of xs) { const last = cols[cols.length - 1]; if (last && x - last.max <= tol) { last.n++; last.max = x; last.sum += x; } else cols.push({ n: 1, max: x, sum: x }); }
+  const anchors = cols.map((c) => c.sum / c.n);
+  const colOf = (x) => anchors.reduce((b, a, i) => (Math.abs(a - x) < Math.abs(anchors[b] - x) ? i : b), 0);
+  const colT = anchors.map(() => [0, 0]);
+  for (const c of allCells) { c.col = colOf(c.x0); c.num = /^\d{1,4}$/.test(c.text); c.d = c.num ? -5 : c.sc[target] - c.sc[ml]; if (Math.abs(c.d) >= 0.5 && !c.num) colT[c.col][c.d > 0 ? 0 : 1]++; }
+  for (const c of allCells) { const ct = colT[c.col], n = ct[0] + ct[1], bias = n >= 3 ? 0.8 * (2 * ct[0] / n - 1) : 0; c.isT = c.d + bias > 0 || (c.d + bias === 0 && (n === 0 || ct[0] >= ct[1])); }
+  // 5. orientation: target left of meaning, or the other way round?
+  let tm = 0, mt = 0;
+  for (const r of rows) for (let i = 0; i < r.length - 1; i++) { if (r[i].isT && !r[i + 1].isT) tm++; if (!r[i].isT && r[i + 1].isT) mt++; }
+  const tFirst = tm >= mt;
+  const caps = (t) => t.replace(/[^\p{L}]/gu, "").length >= 3 && t === t.toUpperCase();
+  const fixIt = (t) => (target === "it" ? t.replace(/(^|\s)&(?=\s)/g, "$1è").replace(/^lo (sono|ho|mi chiamo|abito|parlo|lavoro|vado)\b/, "Io $1") : t);
+  const fixCase = (t) => fixIt(caps(t) ? t.toLowerCase() : t);
+  const withArt = (c) => {
+    if (target === "it" && c.g && !/\s/.test(c.text) && !/^(il|lo|la|l'|i|gli|le)\s/i.test(c.text)) return (c.g === "mf" ? (/^[aeiouh]/i.test(c.text) ? "l'" : "") : itArticle(c.text, c.g)) + c.text.toLowerCase();
+    return fixCase(c.text);
+  };
+  const pairsTotal = tm + mt, items = [], heads = [];
+  const medCellH = (() => { const a = allCells.map((c) => c.h).sort((a, b) => a - b); return a[Math.floor(a.length / 2)] || 12; })();
+  const headOk = pairsTotal >= 2;
+  const isHead = (c) => headOk && c.text.split(/\s+/).length <= 6 && c.text.replace(/[^\p{L}]/gu, "").length >= 3 && (caps(c.text) || (o.pdf && c.h > medCellH * 1.35));
+  for (const r0 of rows) {
+    const r = r0.filter((c) => { if (isHead(c)) { heads.push({ x: c.x0, x1: c.x1, y: c.y0, text: c.text }); return false; } return true; });
+    for (let i = 0; i < r.length; i++) {
+      const a = r[i], b = r[i + 1];
+      if (b && a.num && b.isT) {
+        // "1 uno" in a numbers list – but not "3 Gioco" / "5 Esercizio" (numbered exercises)
+        if (/^[\p{Ll}'’]{3,}$/u.test(b.text) && b.conf >= 75 && Number(a.text) <= 1000) items.push({ tg: withArt(b), de: a.text, x: b.x0, y: b.y0, pair: true });
+        i++; continue;
+      }
+      if (a.num) continue;
+      const pa = tFirst ? a : b, pb = tFirst ? b : a;
+      if (b && pa.isT && !pb.isT && !pb.num) { items.push({ tg: withArt(pa), de: fixCase(pb.text), ml, x: a.x0, y: a.y0, pair: true, cf: Math.min(a.conf, b.conf) }); i++; continue; }
+      if (b && b.sep && pb.isT && !pa.isT && !pa.num) { items.push({ tg: withArt(pb), de: fixCase(pa.text), ml, x: a.x0, y: a.y0, pair: true, cf: Math.min(a.conf, b.conf) }); i++; continue; }
+      const parts = a.text.split(/\s+[=–—-]\s+|\s*→\s*/);
+      if (parts.length === 2 && parts[0] && parts[1]) {
+        const s0 = langScores(parts[0], cands), s1 = langScores(parts[1], cands), d0 = s0[target] - s0[ml], d1 = s1[target] - s1[ml];
+        if (d0 >= d1 && d1 < 0.5) { items.push({ tg: fixCase(parts[0]), de: fixCase(parts[1]), ml, x: a.x0, y: a.y0, pair: true }); continue; }
+        if (d1 > d0 && d0 < 0.5) { items.push({ tg: fixCase(parts[1]), de: fixCase(parts[0]), ml, x: a.x0, y: a.y0, pair: true }); continue; }
+      }
+      if (!a.isT) continue;
+      const letters = a.text.replace(/[^\p{L}]/gu, "").length;
+      const junkWord = (w) => (w.replace(/[^\p{L}]/gu, "").length === 1 && !/^[aeioèàù]$/i.test(w.replace(/[^\p{L}]/gu, ""))) || (!caps(a.text) && /^\p{Lu}{2,3}[.,]?$/u.test(w));
+      if (letters >= 3 && a.text.split(/\s+/).length <= 8 && a.conf >= 60 && !a.text.split(/\s+/).some(junkWord)) items.push({ tg: withArt(a), de: "", x: a.x0, y: a.y0, pair: false });
+    }
+  }
+  // drop OCR noise from pictures: one-letter sides, bracket fragments, tiny low-confidence bits
+  const letters = (t) => t.replace(/[^\p{L}]/gu, "").length;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]; if (!it.pair || /^\d{1,4}$/.test(it.de)) continue;
+    const lt = letters(it.tg), lm = letters(it.de), cf = it.cf == null ? 90 : it.cf;
+    if (lt < 2 || lm < 2 || /[[\]{}<>]/.test(it.tg + it.de) || ((lt <= 3 || lm <= 3) && cf < 80) || (lt <= 3 && lm <= 3 && cf < 88) || (lm <= 3 && it.de === it.de.toUpperCase())) items.splice(i, 1);
+  }
+  // explanations next to an example ("o refer to singular masculine nouns,") look like pairs – keep them, but unticked
+  const wc = (t) => t.split(/\s+/).filter(Boolean).length;
+  const shout = (t) => t.split(/\s+/).filter((w) => w.replace(/[^\p{L}]/gu, "").length >= 3 && w === w.toUpperCase() && /\p{L}/u.test(w)).length;
+  for (const it of items) {
+    if (!it.pair || /^\d{1,4}$/.test(it.de)) continue;
+    const sentence = /[.?!]$/.test(it.tg) && wc(it.tg) >= 2;
+    if ((wc(it.de) >= 5 && wc(it.de) > 1.6 * wc(it.tg) + 1) || /[,;:]$/.test(it.de) || (/^\p{Ll}/u.test(it.de) && (wc(it.de) >= 5 || sentence)) || (it.cf != null && it.cf < 70) ||
+      (letters(it.de) <= 2 && letters(it.tg) >= 4) || shout(it.de) >= 2) it.doubt = true;
+  }
+  // 6. topic = nearest heading above in the same column region
+  for (const it of items) {
+    let best = null;
+    for (const h of heads) if (h.y < it.y && it.x >= h.x - W * 0.03 && it.x <= Math.max(h.x1, h.x + W * 0.12) + W * 0.03 && (!best || h.y > best.y)) best = h;
+    if (!best) for (const h of heads) if (h.y < it.y && (!best || h.y > best.y)) best = h;
+    it.topic = best ? best.text.charAt(0) + best.text.slice(1).toLowerCase().replace(/[*"”]+$/, "").trim() : "";
+  }
+  return { items: items.map(({ x, y, cf, ...rest }) => rest), pairs: items.filter((x) => x.pair).length, ml };
+}
 /*CORE-END*/

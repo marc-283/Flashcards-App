@@ -1,7 +1,7 @@
 /* ================= Sheets ================= */
 const SHEETS = ["cardSheet", "langSheet", "formSheet"];
 let sheetTok = 0;
-function showSheet(id) { sheetTok++; $("backdrop").hidden = false; $(id).hidden = false; }
+function showSheet(id) { sheetTok++; $("backdrop").hidden = false; $(id).hidden = false; $(id).scrollTop = 0; }
 function sheetOpen() { return SHEETS.map((id) => $(id)).find((el) => el && !el.hidden) || null; }
 function closeSheets() {
   SHEETS.forEach((id) => { const el = $(id); if (el) { el.hidden = true; el.style.transform = ""; el.style.transition = ""; el.style.animation = ""; el.classList.remove("dragging"); } });
@@ -26,17 +26,22 @@ function toast(msg, action) {
   t.textContent = "";
   const span = document.createElement("span"); span.textContent = msg; t.appendChild(span);
   if (action) { const b = document.createElement("button"); b.className = "toastbtn"; b.type = "button"; b.textContent = action.label; b.addEventListener("click", () => { t.hidden = true; action.fn(); }); t.appendChild(b); }
-  t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, action ? 7000 : 3200);
+  t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, action ? 7000 : 3600);
 }
 
 /* ---------- Card editor ---------- */
 function curLangCode() {
   const top = state.stack[state.stack.length - 1];
-  if (top.v === "lang" || top.v === "verbs" || top.v === "import" || top.v === "starter") return top.p;
-  if (top.v === "cards") return top.p.lang;
+  if (["lang", "verbs", "import", "starter"].includes(top.v)) return top.p;
+  if (top.v === "cards" || top.v === "deck") return top.p.lang;
   if (top.v === "search" && state.q.lang !== "all") return state.q.lang;
-  let last = null; try { last = localStorage.getItem("plm.lastLang"); } catch { /* ignore */ }
+  const last = lsGet("plm.lastLang");
   return (last && langOf(last) ? last : null) || (langs()[0] && langs()[0].code);
+}
+function curDeck(code) {
+  const top = state.stack[state.stack.length - 1];
+  if ((top.v === "cards" || top.v === "deck") && top.p.deck != null) return top.p.deck;
+  return lsGet("plm.lastDeck." + code) || OWN_DECK;
 }
 function openCard(card, preset) {
   closeSheets();
@@ -47,14 +52,17 @@ function openCard(card, preset) {
   $("cardTitle").textContent = card ? "Karte bearbeiten" : "Neue Karte";
   $("cLang").innerHTML = langs().map((l) => `<option value="${esc(l.code)}"${l.code === code ? " selected" : ""}>${esc(l.name)}</option>`).join("");
   const top = state.stack[state.stack.length - 1];
-  const topic = card ? card.topic : preset.topic != null ? preset.topic : top.v === "cards" && top.p.topic != null ? top.p.topic : (() => { try { return localStorage.getItem("plm.lastTopic." + code) || ""; } catch { return ""; } })();
-  fillTopics(code, topic);
+  const deck = card ? card.deck : preset.deck != null ? preset.deck : curDeck(code);
+  const topic = card ? card.topic : preset.topic != null ? preset.topic : top.v === "cards" && top.p.topic != null ? top.p.topic : (lsGet("plm.lastTopic." + code) || "");
+  fillDecks(code, deck);
+  fillTopics(code, deck, topic);
   $("cTg").value = card ? card.tg : (preset.tg || "");
   $("cDe").value = card ? card.de : (preset.de || "");
   $("cEx").value = card ? card.ex : ""; $("cExDe").value = card ? card.exDe : ""; $("cNote").value = card ? card.note : "";
   $("cMore").open = !!(card && (card.ex || card.note));
   state.cPos = card ? card.pos : "";
   state.cAux = card && card.aux === "essere" ? "essere" : "avere";
+  state.cMl = card && card.ml ? card.ml : "";
   $("cIsc").checked = !!(card && card.isc);
   state.cTables = card && card.tables ? JSON.parse(JSON.stringify(card.tables)) : {};
   $("cDelete").hidden = !card; $("cDelete").classList.remove("armed"); $("cDelete").textContent = "Löschen";
@@ -68,15 +76,21 @@ function openCard(card, preset) {
   showSheet("cardSheet");
   if (!card) setTimeout(() => $("cTg").focus(), 80);
 }
-function fillTopics(code, sel) {
-  const ts = topicsOf(code).filter(Boolean);
+function fillDecks(code, sel) {
+  const ds = decksOf(code).map((d) => d.name);
+  if (!ds.includes(OWN_DECK)) ds.push(OWN_DECK);
+  if (sel && !ds.includes(sel)) ds.push(sel);
+  $("cDeck").innerHTML = ds.map((d) => `<option${d === sel ? " selected" : ""}>${esc(d)}</option>`).join("") + `<option value="__new">+ Neues Projekt …</option>`;
+  $("cNewDeck").hidden = true; $("cNewDeckName").value = "";
+}
+function fillTopics(code, deck, sel) {
+  const ts = topicsOf(code, deck).filter(Boolean);
   if (sel && !ts.includes(sel)) ts.push(sel);
   $("cTopic").innerHTML = `<option value="">Ohne Thema</option>` + ts.map((t) => `<option${t === sel ? " selected" : ""}>${esc(t)}</option>`).join("") + `<option value="__new">+ Neues Thema …</option>`;
   $("cNewTopic").hidden = true; $("cNewTopicName").value = "";
 }
 function readTables() {
-  const box = $("cTables");
-  box.querySelectorAll("input[data-t]").forEach((inp) => {
+  $("cTables").querySelectorAll("input[data-t]").forEach((inp) => {
     const t = inp.dataset.t, i = Number(inp.dataset.i);
     if (!state.cTables[t]) state.cTables[t] = [];
     state.cTables[t][i] = inp.value.trim();
@@ -88,7 +102,7 @@ function syncCardForm() {
   $("ctVerb").setAttribute("aria-pressed", String(t === "verb"));
   $("ctCloze").setAttribute("aria-pressed", String(t === "cloze"));
   $("cTgLabel").textContent = t === "verb" ? `Infinitiv (${L.name})` : t === "cloze" ? `Satz auf ${L.name}` : L.name;
-  $("cDeLabel").textContent = t === "cloze" ? "Übersetzung (Hinweis)" : "Deutsch";
+  $("cDeLabel").textContent = t === "cloze" ? "Übersetzung (Hinweis)" : state.cMl ? `Bedeutung (${MEANING_LANGS[state.cMl]})` : "Deutsch";
   $("cTg").placeholder = t === "verb" ? (code === "it" ? "z. B. andare" : code === "en" ? "z. B. go" : "Infinitiv") : t === "cloze" ? (code === "it" ? "Vado {{a}} Roma domani." : code === "en" ? "I'm looking forward {{to}} it." : "Satz mit {{Lücke}}") : (hasGenderedNouns(L) ? "z. B. la casa" : code === "en" ? "z. B. to look forward to" : "");
   $("cDe").placeholder = t === "cloze" ? "z. B. Ich fahre morgen nach Rom." : t === "verb" ? "z. B. gehen; fahren" : "z. B. das Haus";
   $("cTgHint").textContent = t === "cloze" ? "Lücke in doppelte geschweifte Klammern setzen: {{a}}. Mehrere Lücken sind möglich." : t === "word" ? `${hasGenderedNouns(L) ? "Nomen mit Artikel eintragen. " : ""}Mehrere richtige Antworten mit ; trennen. Optionales in Klammern: (to) cope with.` : "";
@@ -105,12 +119,11 @@ function syncCardForm() {
   }
 }
 function renderTables(L) {
-  const box = $("cTables");
-  box.innerHTML = L.tenses.map((t) => {
+  $("cTables").innerHTML = L.tenses.map((t) => {
     const labels = tenseLabels(L, t), forms = state.cTables[t.n] || [], active = L.active.includes(t.n), filled = forms.filter(Boolean).length;
     const rows = (labels.length ? labels : ["Form"]).map((lab, i) => `<label for="ct-${esc(t.n)}-${i}">${esc(lab)}</label><input id="ct-${esc(t.n)}-${i}" data-t="${esc(t.n)}" data-i="${i}" value="${esc(forms[i] || "")}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">`).join("");
     return `<details class="tensebox"${active ? " open" : ""}><summary><span>${esc(t.n)}</span><span class="hint">${active ? "wird abgefragt" : "nicht aktiv"}${filled ? ` · ${filled}/${labels.length || 1}` : ""}</span></summary><div class="formtable">${rows}</div></details>`;
-  }).join("") + `<p class="hint">Welche Zeiten abgefragt werden, legst du pro Sprache fest (Verbtabellen).</p>`;
+  }).join("") + `<p class="hint">Welche Zeiten abgefragt werden, legst du pro Sprache fest (Konjugation).</p>`;
 }
 function autoFill() {
   readTables();
@@ -130,20 +143,21 @@ function autoFill() {
   renderTables(langOf(code));
   toast(n ? `${n} Formen ergänzt – bitte kurz prüfen` : "Alle Formen waren schon ausgefüllt");
 }
-async function saveCard(next) {
+function saveCard(next) {
   readTables();
   const code = $("cLang").value, L = langOf(code), t = state.cType;
   const tg = $("cTg").value.trim(), de = $("cDe").value.trim();
   if (!tg) { $("cErr").textContent = t === "verb" ? "Trag den Infinitiv ein." : t === "cloze" ? "Trag einen Satz ein." : `Trag das Wort auf ${L.name} ein.`; $("cTg").focus(); return; }
   if (t === "cloze" && !parseCloze(tg).gaps.length) { $("cErr").textContent = "Markiere die Lücke mit doppelten geschweiften Klammern, z. B. Vado {{a}} Roma."; $("cTg").focus(); return; }
-  if (!de && t !== "cloze") { $("cErr").textContent = "Trag die deutsche Bedeutung ein."; $("cDe").focus(); return; }
-  let topic = $("cTopic").value;
+  if (!de && t !== "cloze") { $("cErr").textContent = "Trag die Bedeutung ein."; $("cDe").focus(); return; }
+  let topic = $("cTopic").value, deck = $("cDeck").value;
   if (topic === "__new") topic = $("cNewTopicName").value.trim().slice(0, 40);
+  if (deck === "__new") deck = $("cNewDeckName").value.trim().slice(0, 40) || OWN_DECK;
   const old = state.editing ? cardById(state.editing) : null;
   const posEl = document.querySelector('input[name="cpos"]:checked');
   const base = {
-    ...(old || {}), id: old ? old.id : newId(), lang: code, type: t, tg, de, topic,
-    pos: t === "word" ? (posEl ? posEl.value : "") : t === "verb" ? "v" : "",
+    ...(old || {}), id: old ? old.id : newId(), lang: code, type: t, tg, de, topic, deck,
+    pos: t === "word" ? (posEl ? posEl.value : looksSentence(tg) ? "s" : "") : t === "verb" ? "v" : "",
     ex: $("cEx").value.trim(), exDe: $("cExDe").value.trim(), note: $("cNote").value.trim(),
     created: old ? old.created : nowTs(), updated: nowTs(), srs: old && old.lang === code ? old.srs : {}
   };
@@ -155,28 +169,28 @@ async function saveCard(next) {
   if (old && old.type !== t) base.srs = {};
   const c = normCard(base);
   if (!old) {
-    const sig = cardSig(c), dup = state.cards.find((x) => cardSig(x) === sig);
-    if (dup) { $("cErr").textContent = "Diese Karte gibt es schon."; return; }
+    const dup = state.cards.find((x) => sameKey(x) === sameKey(c) && normAns(x.de) === normAns(c.de));
+    if (dup) { $("cErr").textContent = `Diese Karte gibt es schon (${dup.deck}).`; return; }
   }
   state.cards = old ? state.cards.map((x) => (x.id === old.id ? c : x)) : state.cards.concat(c);
   reindex(); save();
-  try { localStorage.setItem("plm.lastLang", code); localStorage.setItem("plm.lastTopic." + code, topic); } catch { /* ignore */ }
-  if (next) {
-    const keepType = t;
-    openCard(null, { lang: code, type: keepType, topic });
-    toast("Gespeichert");
-  } else {
-    closeSheets();
-    toast(old ? "Karte gespeichert" : `Karte angelegt${langOf(code).newPerDay ? "" : " – neue Karten pro Tag ist auf 0"}`);
-  }
+  lsSet("plm.lastLang", code); lsSet("plm.lastTopic." + code, topic); lsSet("plm.lastDeck." + code, deck);
+  if (next) { openCard(null, { lang: code, type: t, topic, deck }); toast("Gespeichert"); }
+  else { closeSheets(); toast(old ? "Karte gespeichert" : `Karte angelegt${langOf(code).newPerDay ? "" : " – neue Karten pro Tag ist auf 0"}`); }
   if (state.study) { renderStudy(); return; }
   render();
 }
 function deleteCards(ids) {
   const set = new Set(ids), removed = state.cards.filter((c) => set.has(c.id));
   if (!removed.length) return;
-  state.cards = state.cards.filter((c) => !set.has(c.id)); reindex(); save();
-  toast(`${plural(removed.length, "Karte", "Karten")} gelöscht`, { label: "Rückgängig", fn: () => { const have = new Set(state.cards.map((c) => c.id)); state.cards = state.cards.concat(removed.filter((c) => !have.has(c.id))); reindex(); save(); state.study ? renderStudy() : render(); } });
+  const ts = nowTs();
+  state.cards = state.cards.filter((c) => !set.has(c.id)); for (const c of removed) state.tomb[c.id] = ts;
+  reindex(); save();
+  toast(`${plural(removed.length, "Karte", "Karten")} gelöscht`, { label: "Rückgängig", fn: () => {
+    const have = new Set(state.cards.map((c) => c.id)), now = nowTs();
+    for (const c of removed) { delete state.tomb[c.id]; c.updated = now; }
+    state.cards = state.cards.concat(removed.filter((c) => !have.has(c.id))); reindex(); save(); state.study ? renderStudy() : render();
+  } });
 }
 
 /* ---------- Generic form sheet ---------- */
@@ -191,11 +205,12 @@ function openForm(cfg) {
     if (f.type === "chips") return `<div class="field"><span class="label">${esc(f.label)}</span><div class="chips" id="${id}">${f.opts.map(([o, t]) => `<label class="chip"><input type="checkbox" value="${esc(o)}"${(val || []).includes(o) ? " checked" : ""}><span>${esc(t)}</span></label>`).join("")}</div>${f.sub ? `<span class="hint">${esc(f.sub)}</span>` : ""}</div>`;
     const lab = `<label class="label" for="${id}">${esc(f.label)}</label>`;
     if (f.type === "select") return `<div class="field">${lab}<select id="${id}">${f.opts.map(([o, t]) => `<option value="${esc(o)}"${String(val) === String(o) ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>${f.sub ? `<span class="hint">${esc(f.sub)}</span>` : ""}</div>`;
+    if (f.type === "area") return `<div class="field">${lab}<textarea id="${id}" class="paste" style="min-height:70px" placeholder="${esc(f.ph || "")}">${esc(val == null ? "" : val)}</textarea></div>`;
     return `<div class="field">${lab}<input id="${id}"${f.type === "num" ? ' inputmode="numeric"' : ""} value="${esc(val == null ? "" : val)}" placeholder="${esc(f.ph || "")}"${f.max ? ` maxlength="${f.max}"` : ""} autocomplete="off">${f.sub ? `<span class="hint">${esc(f.sub)}</span>` : ""}</div>`;
   };
   let html = ""; const F = cfg.fields;
   for (let i = 0; i < F.length; i++) { if (F[i].half && F[i + 1] && F[i + 1].half) { html += `<div class="two">${fld(F[i])}${fld(F[i + 1])}</div>`; i++; } else html += fld(F[i]); }
-  $("fsFields").innerHTML = html;
+  $("fsFields").innerHTML = html + (cfg.extra || "");
   $("fsSave").textContent = cfg.saveLabel || "Speichern";
   const d = $("fsDelete"); d.hidden = !cfg.onDelete; d.textContent = cfg.deleteLabel || "Löschen"; d.classList.remove("armed");
   $("fsErr").textContent = "";
@@ -238,12 +253,16 @@ function addLang(code) {
         const id = "x" + Date.now().toString(36).slice(-5);
         const tenses = v.tenses.split(",").map((x) => x.trim()).filter(Boolean).map((n) => ({ n }));
         const L = normLang({ code: id, name: v.name, tts: v.tts, color: LANG_COLORS[langs().length % LANG_COLORS.length], persons: v.persons.split(",").map((x) => x.trim()).filter(Boolean), tenses, active: tenses.slice(0, 1).map((t) => t.n), articles: [] });
-        state.settings.langs.push(L); save(); go("lang", L.code); toast(`${L.name} hinzugefügt`);
+        state.settings.langs.push(L); touchSettings(); go("lang", L.code); toast(`${L.name} hinzugefügt`);
       } });
     return;
   }
   if (langOf(code)) return;
-  state.settings.langs.push(defaultLang(code)); save(); closeSheets(); go("lang", code); toast(`${PRESETS[code].name} hinzugefügt`);
+  state.settings.langs.push(defaultLang(code)); touchSettings(); closeSheets(); go("lang", code); toast(`${PRESETS[code].name} hinzugefügt`);
+}
+function voiceOpts(code) {
+  const tag = langTag(code), list = voicesFor(code).slice().sort((a, b) => voiceScore(b, tag) - voiceScore(a, tag));
+  return [["", `Automatisch${list[0] ? ` (${list[0].name})` : ""}`]].concat(list.map((v) => [v.voiceURI, `${v.name} · ${v.lang}`]));
 }
 function openLangSettings(code) {
   const L = langOf(code); if (!L) return;
@@ -255,34 +274,47 @@ function openLangSettings(code) {
       { k: "order", label: "Reihenfolge neuer Karten", type: "select", opts: [["seq", "Wie angelegt (Themen nacheinander)"], ["random", "Zufällig"]] },
       { k: "active", label: "Abgefragte Zeiten", type: "chips", opts: L.tenses.map((t) => [t.n, t.n]) },
       { k: "persons", label: "Personen (mit Komma getrennt)", ph: "io, tu, lui/lei …" },
-      { k: "tts", label: "Aussprache", type: "select", opts: TTS_LIST.concat([["", "keine"]]).concat(TTS_LIST.some(([c]) => c === L.tts) || !L.tts ? [] : [[L.tts, L.tts]]) },
+      { k: "tts", label: "Aussprache-Sprache", type: "select", opts: TTS_LIST.concat([["", "keine"]]).concat(TTS_LIST.some(([c]) => c === L.tts) || !L.tts ? [] : [[L.tts, L.tts]]), half: true },
+      { k: "voice", label: "Stimme", type: "select", opts: voiceOpts(code), half: true },
       { k: "addTense", label: "Weitere Zeit hinzufügen", ph: "z. B. Trapassato prossimo", max: 40 }
     ],
-    values: { name: L.name, newPerDay: L.newPerDay, dirs: L.dirs, order: L.order, active: L.active, persons: L.persons.join(", "), tts: L.tts },
+    extra: canSpeak() ? `<div class="btnrow"><button type="button" class="btn" data-action="voice-try" data-arg="${esc(code)}">${ICON_SPEAK} Stimme testen</button></div>` : "",
+    values: { name: L.name, newPerDay: L.newPerDay, dirs: L.dirs, order: L.order, active: L.active, persons: L.persons.join(", "), tts: L.tts, voice: L.voice },
     validate: (v) => (!v.name ? "Gib der Sprache einen Namen." : ""),
     onSave: (v) => {
-      Object.assign(L, { name: v.name.slice(0, 30), newPerDay: v.newPerDay, dirs: v.dirs, order: v.order, active: v.active, persons: v.persons.split(",").map((x) => x.trim()).filter(Boolean), tts: v.tts });
+      Object.assign(L, { name: v.name.slice(0, 30), newPerDay: v.newPerDay, dirs: v.dirs, order: v.order, active: v.active, persons: v.persons.split(",").map((x) => x.trim()).filter(Boolean), tts: v.tts, voice: v.voice });
       if (v.addTense && !L.tenses.some((t) => t.n === v.addTense)) { L.tenses.push({ n: v.addTense }); L.active.push(v.addTense); }
-      save(); render(); toast("Gespeichert");
+      touchSettings(); render(); toast("Gespeichert");
     },
-    onDelete: () => { state.settings.langs = langs().filter((x) => x.code !== code); state.cards = state.cards.filter((c) => c.lang !== code); reindex(); save(); state.stack = [{ v: "hub" }]; render(); toast(`${L.name} gelöscht`); },
+    onDelete: () => { state.settings.langs = langs().filter((x) => x.code !== code); deleteCards(state.cards.filter((c) => c.lang === code).map((c) => c.id)); touchSettings(); state.stack = [{ v: "hub" }]; render(); toast(`${L.name} gelöscht`); },
     deleteLabel: "Sprache löschen", deleteArmed: n ? `Mit ${plural(n, "Karte", "Karten")} löschen?` : "Wirklich löschen?"
   });
 }
-function openPractice(code, topic, ids) {
-  const L = code ? langOf(code) : null, topics = code ? topicsOf(code) : [];
+function openPractice(o) {
+  o = o || {};
+  const L = o.lang ? langOf(o.lang) : null, decks = o.lang && o.deck == null ? decksOf(o.lang) : [];
   const fields = [];
-  if (!ids && !code) fields.push({ k: "lang", label: "Sprache", type: "select", opts: [["", "Alle Sprachen"]].concat(langs().map((l) => [l.code, l.name])) });
-  if (!ids && code && topic == null && topics.length > 1) fields.push({ k: "topic", label: "Thema", type: "select", opts: [["__all", "Alle Themen"]].concat(topics.map((t) => [t, t || "Ohne Thema"])) });
-  if (!ids) fields.push({ k: "sel", label: "Auswahl", type: "select", opts: [["random", "Zufällig aus allen"], ["hard", "Am häufigsten vergessen"], ["recent", "Kürzlich neu gelernt"], ["new", "Noch nicht gelernt (Vorschau)"], ["verbs", "Nur Verbformen"]] });
+  if (!o.ids && !o.lang) fields.push({ k: "lang", label: "Sprache", type: "select", opts: [["", "Alle Sprachen"]].concat(langs().map((l) => [l.code, l.name])) });
+  if (!o.ids && decks.length > 1) fields.push({ k: "deck", label: "Projekt", type: "select", opts: [["__all", "Alle Projekte"]].concat(decks.map((d) => [d.name, d.name])) });
+  if (!o.ids) fields.push({ k: "sel", label: "Auswahl", type: "select", opts: [["random", "Zufällig aus allen"], ["hard", "Am häufigsten vergessen"], ["recent", "Kürzlich neu gelernt"], ["new", "Noch nicht gelernt (Vorschau)"], ["verbs", "Nur Verbformen"]] });
   fields.push({ k: "count", label: "Anzahl", type: "select", opts: [[10, "10 Karten"], [20, "20 Karten"], [30, "30 Karten"], [50, "50 Karten"], [9999, "Alle"]], half: true }, { k: "mode", label: "Modus", type: "select", opts: MODES, half: true });
-  openForm({ title: "Üben", hint: `Freie Runde${L ? " in " + L.name : ""} – zählt für deine Serie, ändert aber nicht den Wiederholungsplan.`, saveLabel: "Los geht's", fields,
-    values: { lang: code || "", topic: topic != null ? topic : "__all", sel: "random", count: 20, mode: state.settings.mode },
-    onSave: (v) => { state.settings.mode = v.mode; save(); startPractice({ lang: ids ? null : code || v.lang || null, topic: ids ? null : topic != null ? topic : (v.topic && v.topic !== "__all" ? v.topic : null), ids: ids || null, sel: v.sel || "random", count: Number(v.count) }); } });
+  openForm({ title: "Üben", hint: `Freie Runde${L ? " in " + L.name : ""}${o.deck != null ? " · " + o.deck : ""} – zählt für deine Serie, ändert aber nicht den Wiederholungsplan.`, saveLabel: "Los geht's", fields,
+    values: { lang: "", deck: "__all", sel: "random", count: 20, mode: state.settings.mode },
+    onSave: (v) => {
+      state.settings.mode = v.mode; save(false);
+      startPractice({ ids: o.ids || null, lang: o.ids ? null : o.lang || v.lang || null, deck: o.ids ? null : o.deck != null ? o.deck : (v.deck && v.deck !== "__all" ? v.deck : null), topic: o.ids ? null : o.topic, sel: v.sel || "random", count: Number(v.count) });
+    } });
+}
+function openTest(code, deck) {
+  const n = poolOf({ lang: code, deck }).length;
+  openForm({ title: "Test", hint: `${deck} · gemischte Fragen: Übersetzen, Auswahl, Lückensätze, Verbformen und Sätze bauen. Am Ende gibt es eine Auswertung – der Wiederholungsplan bleibt unverändert.`, saveLabel: "Test starten",
+    fields: [{ k: "count", label: "Fragen", type: "select", opts: [[10, "10 Fragen"], [20, "20 Fragen"], [30, "30 Fragen"], [50, "50 Fragen"]].filter(([k], i) => i === 0 || k <= n + 9) }],
+    values: { count: Math.min(20, n) >= 20 ? 20 : 10 },
+    onSave: (v) => startTest({ lang: code, deck, count: Number(v.count) }) });
 }
 function openDrill(code) {
   const verbLangs = langs().filter((l) => state.cards.some((c) => c.lang === l.code && c.type === "verb"));
-  if (!code) { if (!verbLangs.length) { toast("Noch keine Verben – lade den Starter oder leg ein Verb an"); return; } if (verbLangs.length > 1) { openForm({ title: "Konjugation", fields: [{ k: "lang", label: "Sprache", type: "select", opts: verbLangs.map((l) => [l.code, l.name]) }], saveLabel: "Weiter", onSave: (v) => setTimeout(() => openDrill(v.lang), 260) }); return; } code = verbLangs[0].code; }
+  if (!code) { if (!verbLangs.length) { toast("Noch keine Verben – lade ein Starter-Paket oder leg ein Verb an"); return; } if (verbLangs.length > 1) { openForm({ title: "Konjugation", fields: [{ k: "lang", label: "Sprache", type: "select", opts: verbLangs.map((l) => [l.code, l.name]) }], saveLabel: "Weiter", onSave: (v) => setTimeout(() => openDrill(v.lang), 260) }); return; } code = verbLangs[0].code; }
   const L = langOf(code), withForms = L.tenses.filter((t) => state.cards.some((c) => c.lang === code && c.type === "verb" && c.tables && c.tables[t.n] && c.tables[t.n].some(Boolean)));
   if (!withForms.length) { toast("Noch keine Verbformen eingetragen"); return; }
   const def = L.active.filter((n) => withForms.some((t) => t.n === n));
@@ -293,39 +325,25 @@ function openDrill(code) {
     onSave: (v) => startDrill({ lang: code, tenses: v.tenses, count: Number(v.count) }) });
 }
 function openTopicPicker(ids) {
-  const code = cardById(ids[0]).lang;
-  openForm({ title: "Thema ändern", hint: `${plural(ids.length, "Karte", "Karten")} verschieben`, fields: [{ k: "topic", label: "Thema", type: "select", opts: [["", "Ohne Thema"]].concat(topicsOf(code).filter(Boolean).map((t) => [t, t])) }, { k: "newTopic", label: "Oder neues Thema", ph: "z. B. Reisen", max: 40 }],
-    onSave: (v) => { const t = v.newTopic || v.topic, set = new Set(ids); state.cards.forEach((c) => { if (set.has(c.id)) c.topic = t; }); save(); state.sel = null; render(); toast("Thema geändert"); } });
+  const first = cardById(ids[0]), code = first.lang;
+  openForm({ title: "Verschieben", hint: `${plural(ids.length, "Karte", "Karten")} in ein anderes Projekt oder Thema`,
+    fields: [{ k: "deck", label: "Projekt", type: "select", opts: decksOf(code).map((d) => [d.name, d.name]).concat([["__new", "+ Neues Projekt"]]) }, { k: "newDeck", label: "Name des neuen Projekts", ph: "z. B. Kurs A2", max: 40 },
+      { k: "topic", label: "Thema", type: "select", opts: [["__keep", "Thema behalten"], ["", "Ohne Thema"]].concat(topicsOf(code).filter(Boolean).map((t) => [t, t])) }, { k: "newTopic", label: "Oder neues Thema", ph: "z. B. Reisen", max: 40 }],
+    values: { deck: first.deck, topic: "__keep" },
+    onSave: (v) => {
+      const deck = v.deck === "__new" ? (v.newDeck || OWN_DECK) : v.deck, set = new Set(ids), ts = nowTs();
+      state.cards.forEach((c) => { if (!set.has(c.id)) return; c.deck = deck; if (v.newTopic) c.topic = v.newTopic; else if (v.topic !== "__keep") c.topic = v.topic; c.updated = ts; });
+      save(); state.sel = null; render(); toast("Verschoben");
+    } });
 }
-
-/* ---------- Import ---------- */
-function impParse(text) {
-  const imp = state.imp;
-  imp.text = text; imp.error = "";
-  const { rows } = parseCSV(text);
-  if (!rows.length || rows.every((r) => r.length < 2)) { imp.rows = null; imp.error = "Keine zwei Spalten erkannt. Trenne Wort und Übersetzung mit Tab, Semikolon, Komma oder „ - “."; render(); return; }
-  imp.rows = rows;
-  const first = rows[0], hits = {};
-  first.forEach((h, i) => { for (const [k, re] of Object.entries(IMPORT_H)) if (re.test(h.trim()) && hits[k] == null) hits[k] = i; });
-  const L = langOf(imp.lang);
-  if (L && first.some((h) => normAns(h) === normAns(L.name))) hits.tg = first.findIndex((h) => normAns(h) === normAns(L.name));
-  imp.header = Object.keys(hits).length >= 1 && (hits.tg != null || hits.de != null);
-  imp.map = { tg: hits.tg != null ? hits.tg : 0, de: hits.de != null ? hits.de : (hits.tg === 1 ? 0 : 1), ex: hits.ex != null ? hits.ex : -1, topic: hits.topic != null ? hits.topic : -1, note: hits.note != null ? hits.note : -1 };
-  if (!imp.header) {
-    const sample = rows.slice(0, 30), deLike = (col) => sample.filter((r) => /\b(der|die|das|ein|eine|sich)\b|[äöüß]/i.test(r[col] || "")).length;
-    if (deLike(0) > deLike(1) + 2) imp.map = { ...imp.map, tg: 1, de: 0 };
-  }
-  render();
-}
-function impRun() {
-  const imp = state.imp, recs = impRecords(imp).filter((r) => r.c && !r.skip), now = nowTs();
-  recs.forEach((r, i) => { r.c.created = now + i; r.c.id = newId() + i; });
-  state.cards = state.cards.concat(recs.map((r) => r.c)); reindex(); save();
-  const code = imp.lang;
-  state.imp = null;
-  toast(`${plural(recs.length, "Karte", "Karten")} importiert`);
-  goBack();
-  if (state.stack[state.stack.length - 1].v !== "lang") go("lang", code);
+function renameDeck(code, deck) {
+  openForm({ title: "Projekt umbenennen", fields: [{ k: "name", label: "Name", max: 40 }], values: { name: deck },
+    validate: (v) => (!v.name ? "Gib dem Projekt einen Namen." : v.name !== deck && decksOf(code).some((d) => d.name === v.name) ? "Ein Projekt mit diesem Namen gibt es schon." : ""),
+    onSave: (v) => {
+      const ts = nowTs(); state.cards.forEach((c) => { if (c.lang === code && c.deck === deck) { c.deck = v.name; c.updated = ts; } });
+      const k1 = `${code}|${deck}`; if (state.tests[k1]) { state.tests[`${code}|${v.name}`] = state.tests[k1]; delete state.tests[k1]; }
+      save(); const top = state.stack[state.stack.length - 1]; if (top.v === "deck") top.p = { lang: code, deck: v.name }; render(); toast("Umbenannt");
+    } });
 }
 
 /* ---------- Files: backup, CSV, calendar ---------- */
@@ -342,12 +360,12 @@ async function offerFile(filename, data, type) {
 }
 async function exportJson() {
   saveNow();
-  const ok = await offerFile(`plm-backup-${dayKey(today())}.json`, JSON.stringify({ app: "plm", version: 1, exportedAt: new Date().toISOString(), settings: state.settings, cards: state.cards, stats: state.stats }), "application/json");
-  if (ok) { try { localStorage.setItem(BACKUP_KEY, new Date().toISOString()); } catch { /* ignore */ } render(); }
+  const ok = await offerFile(`plm-backup-${dayKey(today())}.json`, JSON.stringify(snapshotData(true)), "application/json");
+  if (ok) { lsSet(BACKUP_KEY, new Date().toISOString()); render(); }
 }
 function exportCsv() {
   const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
-  const lines = ["Sprache;Art;Fremdsprache;Deutsch;Thema;Beispiel;Beispiel DE;Notiz;Status"].concat(state.cards.map((c) => [q(langName(c.lang)), q(c.type === "verb" ? "Verb" : c.type === "cloze" ? "Lückensatz" : "Vokabel"), q(c.tg), q(c.de), q(c.topic), q(c.ex), q(c.exDe), q(c.note), q(STATE_TXT[cardState(c)])].join(";")));
+  const lines = ["Sprache;Projekt;Thema;Art;Fremdsprache;Deutsch;Beispiel;Beispiel DE;Notiz;Status"].concat(state.cards.map((c) => [q(langName(c.lang)), q(c.deck), q(c.topic), q(c.type === "verb" ? "Verb" : c.type === "cloze" ? "Lückensatz" : c.pos === "s" ? "Satz" : "Vokabel"), q(c.tg), q(c.de), q(c.ex), q(c.exDe), q(c.note), q(STATE_TXT[cardState(c)])].join(";")));
   offerFile(`plm-karten-${dayKey(today())}.csv`, "﻿" + lines.join("\r\n"), "text/csv");
 }
 async function importBackup(input) {
@@ -356,26 +374,22 @@ async function importBackup(input) {
   try {
     const d = JSON.parse(await file.text());
     if (!d || d.app !== "plm" || !Array.isArray(d.cards)) { toast("Das ist kein PLM-Backup"); return; }
-    const s = normSettings(d.settings);
-    for (const L of s.langs) if (!langOf(L.code)) state.settings.langs.push(L);
-    const incoming = d.cards.map(normCard).filter(Boolean), map = new Map(state.cards.map((c) => [c.id, c]));
-    for (const c of incoming) { const cur = map.get(c.id); if (!cur || (c.updated || 0) >= (cur.updated || 0)) map.set(c.id, c); }
-    state.cards = [...map.values()]; reindex();
-    if (d.stats && typeof d.stats === "object") for (const [k, v] of Object.entries(d.stats)) { if (!/^\d{4}-\d{2}-\d{2}$/.test(k) || !v || typeof v !== "object") continue; state.stats[k] = state.stats[k] || {}; for (const [code, x] of Object.entries(v)) { const cur = state.stats[k][code] || {}; state.stats[k][code] = { r: Math.max(cur.r || 0, x.r || 0), ok: Math.max(cur.ok || 0, x.ok || 0), n: Math.max(cur.n || 0, x.n || 0), s: Math.max(cur.s || 0, x.s || 0), p: Math.max(cur.p || 0, x.p || 0) }; } }
-    save(); render(); toast(`${plural(incoming.length, "Karte", "Karten")} geladen`);
+    const before = state.cards.length;
+    mergeData(d, { fromBackup: true });
+    save(); render(); toast(`Backup geladen · ${plural(state.cards.length - before, "neue Karte", "neue Karten")}`);
   } catch { toast("Die Datei konnte nicht gelesen werden"); }
 }
 function downloadIcs() {
   const v = ($("setRemind") && $("setRemind").value) || state.settings.remind;
-  state.settings.remind = v; save();
+  state.settings.remind = v; save(false);
   const url = location.protocol.startsWith("http") ? location.href.split("#")[0] + "#learn" : "";
   offerFile("plm-erinnerung.ics", icsDaily(v, "Vokabeln wiederholen (PLM)", url, dayKey(today() + 1)), "text/calendar");
   toast("Öffne die Datei und tippe auf „Hinzufügen“");
 }
 async function setBadgeSetting(on) {
   if (on && window.Notification && Notification.permission !== "granted") {
-    try { const p = await Notification.requestPermission(); if (p !== "granted") { state.settings.badge = false; save(); render(); toast("Ohne Erlaubnis kann PLM keine Zahl anzeigen"); return; } } catch { /* ignore */ }
+    try { const p = await Notification.requestPermission(); if (p !== "granted") { state.settings.badge = false; save(false); render(); toast("Ohne Erlaubnis kann PLM keine Zahl anzeigen"); return; } } catch { /* ignore */ }
   }
-  state.settings.badge = on; save();
+  state.settings.badge = on; save(false);
   if (on) updateBadge(); else if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
 }

@@ -38,8 +38,10 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") addEventListe
     </div>
     <div class="two">
       <div class="field"><label class="label" for="cLang">Sprache</label><select id="cLang"></select></div>
-      <div class="field"><label class="label" for="cTopic">Thema</label><select id="cTopic"></select></div>
+      <div class="field"><label class="label" for="cDeck">Projekt</label><select id="cDeck"></select></div>
     </div>
+    <div class="newcat" id="cNewDeck" hidden><input id="cNewDeckName" maxlength="40" placeholder="Neues Projekt, z. B. Kurs A2" aria-label="Neues Projekt"><button type="button" class="btn" id="cNewDeckAdd">OK</button></div>
+    <div class="field"><label class="label" for="cTopic">Thema</label><select id="cTopic"></select></div>
     <div class="newcat" id="cNewTopic" hidden><input id="cNewTopicName" maxlength="40" placeholder="Neues Thema, z. B. Reisen" aria-label="Neues Thema"><button type="button" class="btn" id="cNewTopicAdd">OK</button></div>
     <div class="field">
       <label class="label" for="cTg" id="cTgLabel">Italienisch</label>
@@ -95,7 +97,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") addEventListe
   </form>
 </div>
 
-<div class="selbar" id="selbar" hidden><div class="selbar-in"><span id="selCount">0 ausgewählt</span><span class="btnrow"><button type="button" class="btn" id="selTopic">Thema</button><button type="button" class="btn" id="selSusp">Pausieren</button><button type="button" class="btn danger" id="selDelete">Löschen</button></span></div></div>
+<div class="selbar" id="selbar" hidden><div class="selbar-in"><span id="selCount">0 ausgewählt</span><span class="btnrow"><button type="button" class="btn" id="selTopic">Verschieben</button><button type="button" class="btn" id="selSusp">Pausieren</button><button type="button" class="btn danger" id="selDelete">Löschen</button></span></div></div>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <div class="study" id="study" role="dialog" aria-modal="true" aria-label="Lernen" hidden><div class="study-in" id="studyIn"></div></div>

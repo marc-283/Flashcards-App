@@ -1,6 +1,6 @@
 const fs = require("fs"), vm = require("vm"), assert = require("assert");
 const src = fs.readFileSync(__dirname + "/../src/core.js", "utf8");
-const ctx = {}; vm.createContext(ctx); vm.runInContext(src + "\n;globalThis.X={srsOptions,srsCalc,fmtIvl,checkAnswer,answerVariants,itConj,enConj,parseCSV,parseCloze,dayNum,dayStart,dayKey,icsDaily};", ctx);
+const ctx = {}; vm.createContext(ctx); vm.runInContext(src + "\n;globalThis.X={srsOptions,srsCalc,fmtIvl,checkAnswer,answerVariants,itConj,enConj,parseCSV,parseCloze,dayNum,dayStart,dayKey,icsDaily,parseLayout,itArticle,langScores};", ctx);
 const X = ctx.X;
 let fails = 0; const t = (name, fn) => { try { fn(); console.log("ok  ", name); } catch (e) { fails++; console.log("FAIL", name, "\n   ", e.message); } };
 const eq = (a, b) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b);
@@ -65,4 +65,57 @@ t("csv semicolon header", () => { const r = X.parseCSV("Deutsch;Italienisch\nHau
 t("dash list", () => { const r = X.parseCSV("la casa - das Haus\nil cane - der Hund"); eq(r.rows[0], ["la casa","das Haus"]); });
 t("comma inside", () => { const r = X.parseCSV('"Sì, certo",ja klar\nbene,gut'); eq(r.rows[0], ["Sì, certo","ja klar"]); });
 t("ics", () => { const s = X.icsDaily("19:30", "Vokabeln", "https://x.github.io/plm/", "2026-10-23"); assert(s.includes("DTSTART:20261023T193000") && s.includes("RRULE:FREQ=DAILY")); });
+
+// --- layout recognition (photo / PDF)
+const fx = (n) => JSON.parse(fs.readFileSync(__dirname + "/fixtures/" + n, "utf8"));
+t("photo: 18 Italian–English pairs", () => {
+  const r = X.parseLayout(fx("ocr-photo.json"), { target: "it" });
+  assert.strictEqual(r.items.length, 18); assert.strictEqual(r.ml, "en");
+  eq([r.items[0].tg, r.items[0].de], ["Non toccarlo.", "Don't touch it."]);
+  eq([r.items[17].tg, r.items[17].de], ["Non aspettare.", "Don't wait."]);
+});
+t("photo 2x: low-confidence row is kept, all 18 pairs clean", () => {
+  const f = fx("ocr-photo-2x.json"), r = X.parseLayout(f.lines, { target: "it", width: f.width });
+  assert.strictEqual(r.items.length, 18, r.items.map((i) => i.tg).join(" | "));
+  eq([r.items[5].tg, r.items[5].de], ["Non chiuderlo.", "Don't close it."]);
+  eq(r.items[6].tg, "Non andare lì.");
+});
+t("picture noise is dropped", () => {
+  const W = (t, x, c) => ({ text: t, x0: x, x1: x + 40, y0: 0, y1: 20, conf: c });
+  const rows = [[W("i", 0, 60), W("h", 300, 40), W("SD,", 340, 30)], [W("po", 0, 70), W("Y", 300, 50)], [W("[li", 0, 80), W("ins", 300, 80)], [W("la", 0, 90), W("casa", 45, 90), W("das", 300, 90), W("Haus", 345, 90)], [W("il", 0, 90), W("cane", 45, 90), W("der", 300, 90), W("Hund", 345, 90)], [W("Lui", 0, 90), W("PA", 300, 60)], [W("la", 0, 90), W("sedia", 45, 90), W("der", 300, 90), W("Stuhl", 345, 90)], [W("il", 0, 90), W("libro", 45, 90), W("das", 300, 90), W("Buch", 345, 90)], [W("la", 0, 90), W("porta", 45, 90), W("die", 300, 90), W("Tür", 345, 90)]]
+    .map((ws, i) => ({ words: ws.map((w) => ({ ...w, y0: i * 40, y1: i * 40 + 20 })) }));
+  const r = X.parseLayout(rows, { target: "it", width: 600 });
+  eq(r.items.map((i) => i.tg + "=" + i.de), ["la casa=das Haus", "il cane=der Hund", "la sedia=der Stuhl", "il libro=das Buch", "la porta=die Tür"]);
+});
+t("numbered exercises are no number words, OCR fixes, doubtful pairs", () => {
+  const row = (i, cells) => ({ words: cells.flatMap(([t, x]) => t.split(" ").map((w, j) => ({ text: w, x0: x + j * 45, x1: x + j * 45 + 40, y0: i * 40, y1: i * 40 + 20, conf: 92 }))) });
+  const r = X.parseLayout([row(0, [["1", 0], ["uno", 100]]), row(1, [["3", 0], ["Gioco", 100]]), row(2, [["Qual & il tuo numero?", 0], ["What is your number?", 400]]), row(3, [["lo sono italiano.", 0], ["I am Italian.", 400]]),
+    row(4, [["Emily è inglese.", 0], ["and feminine nouns.", 400]]), row(5, [["la casa", 0], ["the house", 400]]), row(6, [["il cane", 0], ["the dog", 400]])], { target: "it", width: 800 });
+  const by = (tg) => r.items.find((i) => i.tg === tg) || {};
+  eq(by("uno").de, "1"); assert(!r.items.some((i) => /Gioco/.test(i.tg)), "Gioco");
+  eq(by("Qual è il tuo numero?").de, "What is your number?"); eq(by("Io sono italiano.").de, "I am Italian.");
+  eq(!!by("Emily è inglese.").doubt, true); eq(!!by("la casa").doubt, false);
+});
+t("glossary: columns, articles, headings", () => {
+  const r = X.parseLayout(fx("ocr-glossary.json"), { target: "it" });
+  const find = (tg) => r.items.find((i) => i.tg === tg) || {};
+  eq([find("la sedia").de, find("la sedia").topic], ["chair", "In the classroom"]);
+  eq([find("la signora").de, find("la signora").topic], ["Madam", "Nouns"]);
+  eq(find("l'insegnante").de, "teacher");
+  eq(find("il tavolo").de, "table");
+  eq([find("essere").de, find("essere").topic], ["to be", "Verbs"]);
+  eq(find("Come ti chiami?").de, "What's your name?");
+  eq(find("uno").de, "1");
+  assert(r.pairs >= 60, "pairs " + r.pairs);
+});
+t("dash lists both directions", () => {
+  const lines = ["la casa - das Haus", "andare - gehen", "Wie heißt du? - Come ti chiami?"].map((s, i) => ({ words: s.split(" ").map((w, j) => ({ text: w, x0: j * 60, x1: j * 60 + 50, y0: i * 40, y1: i * 40 + 20 })) }));
+  const r = X.parseLayout(lines, { target: "it" });
+  eq(r.items.map((i) => [i.tg, i.de]), [["la casa", "das Haus"], ["andare", "gehen"], ["Come ti chiami?", "Wie heißt du?"]]);
+});
+t("single word list (picture cards)", () => {
+  const lines = "LATTE PESCE PANE CARNE".split(" ").map((w, i) => ({ words: [{ text: w, x0: 100, x1: 100 + w.length * 20, y0: i * 50, y1: i * 50 + 30 }] }));
+  eq(X.parseLayout(lines, { target: "it" }).items.map((i) => i.tg), ["latte", "pesce", "pane", "carne"]);
+});
+t("italian article from gender", () => { eq([X.itArticle("sedia", "f"), X.itArticle("tavolo", "m"), X.itArticle("zaino", "m"), X.itArticle("amico", "m"), X.itArticle("studente", "m")], ["la ", "il ", "lo ", "l'", "lo "]); });
 console.log(fails ? `\n${fails} FAILED` : "\nall passed"); process.exit(fails ? 1 : 0);

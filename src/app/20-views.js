@@ -1,11 +1,15 @@
 /* ================= Building blocks ================= */
 const ICON_SEARCH = '<svg class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 15.5L20.5 20.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
 const ICON_SPEAK = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-const VIEW_LABEL = { hub: "Menü", lang: "Sprache", cards: "Karten", verbs: "Verben", verb: "Verb", search: "Suche", stats: "Statistik", settings: "Einstellungen", import: "Import", starter: "Starter" };
-const backBar = () => { const prev = state.stack[state.stack.length - 2]; return `<button class="backbtn" data-action="back"><span aria-hidden="true">‹</span>${esc(prev ? (prev.v === "lang" ? langName(prev.p) : VIEW_LABEL[prev.v] || "Zurück") : "Menü")}</button>`; };
+const ICON_SPEAK_BIG = '<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M3.5 9h4l5.5-4.5v15L7.5 15h-4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19.2 5.8a8.8 8.8 0 0 1 0 12.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
+const ICON_SLOW = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 16.5c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17 16.5h2.2a1.8 1.8 0 0 0 0-3.6H17" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 16.5h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 16.5v2M14 16.5v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="19.5" cy="11" r="1" fill="currentColor"/></svg>';
+const ICON_MIC = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><rect x="8.5" y="3" width="7" height="12" rx="3.5" fill="currentColor"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+const VIEW_LABEL = { hub: "Menü", lang: "Sprache", deck: "Projekt", cards: "Karten", verbs: "Verben", verb: "Verb", search: "Suche", stats: "Statistik", settings: "Einstellungen", import: "Import", review: "Prüfen", starter: "Starter" };
+const backLabel = (prev) => (prev.v === "lang" ? langName(prev.p) : prev.v === "deck" ? prev.p.deck : VIEW_LABEL[prev.v] || "Zurück");
+const backBar = () => { const prev = state.stack[state.stack.length - 2]; return `<button class="backbtn" data-action="back"><span aria-hidden="true">‹</span>${esc(prev ? backLabel(prev) : "Menü")}</button>`; };
 const badgeTxt = (txt, color) => `<span class="badge" style="color:${color};background:${color}24" aria-hidden="true">${esc(txt)}</span>`;
-function navRow(action, arg, title, sub, val, badgeHTML) {
-  return `<button class="row${badgeHTML ? "" : " nobadge"}" data-action="${action}" data-arg="${esc(arg)}">
+function navRow(action, arg, title, sub, val, badgeHTML, extra) {
+  return `<button class="row${badgeHTML ? "" : " nobadge"}" data-action="${action}" data-arg="${esc(arg)}"${extra || ""}>
     ${badgeHTML || ""}<span class="main"><span class="t1">${esc(title)}</span>${sub ? `<span class="t2">${esc(sub)}</span>` : ""}</span>
     <span class="val">${val || ""}</span><span class="chev" aria-hidden="true">›</span></button>`;
 }
@@ -20,15 +24,16 @@ function stateBar(m) {
   const tot = m.new + m.learn + m.known + m.hard || 1;
   return `<div class="bar" aria-hidden="true"><span style="width:${m.known / tot * 100}%;background:var(--pos)"></span><span style="width:${m.learn / tot * 100}%;background:#3FA9FF"></span><span style="width:${m.hard / tot * 100}%;background:var(--neg)"></span></div>`;
 }
+const stripArt = (s) => s.replace(/^(il|lo|la|i|gli|le|the|to|a|an|el|los|las|les|un|une|uno|una|de|het|en|ett|o|os|as)\s+|^l'/i, "");
 function cardRow(c) {
   const L = langOf(c.lang), stt = cardState(c), on = state.sel && state.sel.ids.has(c.id);
-  const tags = (c.type === "verb" ? '<span class="tag">Verb</span>' : c.type === "cloze" ? '<span class="tag">Satz</span>' : "") +
-    (stt === "new" ? '<span class="tag attn">Neu</span>' : stt === "hard" ? '<span class="tag bad">Schwierig</span>' : stt === "susp" ? '<span class="tag">Pausiert</span>' : "");
+  const tags = (c.type === "verb" ? '<span class="tag">Verb</span>' : c.type === "cloze" ? '<span class="tag">Lücke</span>' : c.pos === "s" ? '<span class="tag">Satz</span>' : "") +
+    (!c.de && c.type !== "cloze" ? '<span class="tag bad">Ohne Übersetzung</span>' : stt === "new" ? '<span class="tag attn">Neu</span>' : stt === "hard" ? '<span class="tag bad">Schwierig</span>' : stt === "susp" ? '<span class="tag">Pausiert</span>' : "");
   const title = c.type === "cloze" ? parseCloze(c.tg).text : c.tg;
-  const sub = [c.de, c.type === "word" && c.pos ? POS[c.pos] : "", c.topic].filter(Boolean).join(" · ");
+  const sub = [c.de, c.type === "word" && c.pos && c.pos !== "s" ? POS[c.pos] : "", c.topic].filter(Boolean).join(" · ");
   const dt = stt === "new" || stt === "susp" ? "" : dueText(c);
   return `<button class="row nochev" data-action="card" data-arg="${esc(c.id)}"${state.sel ? ` aria-pressed="${on}"` : ""}>
-    ${state.sel ? `<span class="checkc${on ? " on" : ""}" aria-hidden="true">${on ? "✓" : ""}</span>` : badgeTxt((c.tg.replace(/^(il|lo|la|l'|i|gli|le|the|to|a|an|el|los|las|le|les|un|une|uno|una|de|het|en|ett)\s+|^l'/i, "") || "?").slice(0, 2), L ? L.color : "#8E8E96")}
+    ${state.sel ? `<span class="checkc${on ? " on" : ""}" aria-hidden="true">${on ? "✓" : ""}</span>` : badgeTxt((stripArt(c.tg) || "?").slice(0, 2), L ? L.color : "#8E8E96")}
     <span class="main"><span class="t1">${esc(title)}${tags}</span><span class="t2">${esc(sub)}</span></span>
     <span class="val">${dt ? `<small>${esc(dt)}</small>` : ""}</span></button>`;
 }
@@ -72,10 +77,9 @@ function drawChart(host, cfg) {
   svg.addEventListener("pointerleave", hide); svg.addEventListener("pointercancel", hide);
   svg.addEventListener("pointerup", (e) => { if (e.pointerType !== "mouse") hide(); });
 }
-/* History (done per day, correct vs. again) or forecast (due per day) */
 function chartBlock(id, code, mode, days) {
   const t = today();
-  let points, colors, total, sub, legend, base;
+  let points, colors, total, legend, base;
   if (mode === "fc") {
     const fc = forecast(code, days);
     points = fc.map((v, i) => ({ segs: [v], tick: i === 0 ? "heute" : shortDate(t + i), label: i === 0 ? "Heute (inkl. überfällig)" : i === 1 ? "Morgen" : wdFmt.format(dateOfDay(t + i)) }));
@@ -91,21 +95,20 @@ function chartBlock(id, code, mode, days) {
     colors = ["var(--pos)", "var(--neg)"];
     const rv = points.reduce((a, p) => a + p.d.r, 0);
     base = `${plural(total, "Karte", "Karten")} in ${days} Tagen${rv ? ` · ${Math.round(ok / rv * 100)} % gewusst` : ""} · ${Math.round(secs / 60)} Min.`;
-    legend = `<span><i style="background:var(--pos)"></i>Gewusst</span><span><i style="background:var(--neg)"></i>Nochmal</span>`;
+    legend = `<span><i style="background:var(--pos)"></i>Gewusst / geübt</span><span><i style="background:var(--neg)"></i>Nochmal</span>`;
   }
-  sub = base;
   charts.push({ id, points, colors, aria: mode === "fc" ? "Vorschau fälliger Karten" : "Gelernte Karten pro Tag",
     onScrub: (i) => { const el = $(id + "Sub"); if (!el) return; if (i == null) { el.textContent = base; return; } const p = points[i]; el.textContent = mode === "fc" ? `${p.label}: ${plural(p.segs[0], "Karte", "Karten")} fällig` : `${p.label}: ${plural(p.d.r + p.d.p, "Karte", "Karten")}${p.d.r ? ` · ${Math.round(p.d.ok / p.d.r * 100)} % gewusst` : ""}${p.d.n ? ` · ${p.d.n} neu` : ""}`; } });
   return `<section class="chartblock" aria-label="Diagramm">
     <div class="split"><div class="pills" role="group" aria-label="Diagramm">${[["hist", "Verlauf"], ["fc", "Vorschau"]].map(([k, l]) => `<button data-action="chartmode" data-arg="${k}" aria-pressed="${mode === k}">${l}</button>`).join("")}</div></div>
-    <div class="herosub" id="${id}Sub">${esc(sub)}</div>
+    <div class="herosub" id="${id}Sub">${esc(base)}</div>
     <div class="chart" id="${id}"></div>
     <div class="legend">${legend}</div></section>`;
 }
 
 /* ================= Views ================= */
 function viewHub() {
-  const all = dueInfo(null), td = dayTotals(today()), stk = streakInfo(), m = countByState(null);
+  const all = dueInfo(), td = dayTotals(today()), stk = streakInfo(), m = countByState(null);
   const n = state.cards.length;
   const week = histArr(null, 7, "all").reduce((a, b) => a + b, 0);
   let big;
@@ -113,7 +116,7 @@ function viewHub() {
   else if (all.total) big = `<button class="addbig" data-action="learn"><span aria-hidden="true">▶</span>Lernen <small>${num(all.total)} ${all.total === 1 ? "Karte" : "Karten"} · ca. ${minutesFor(all)} Min.</small></button>`;
   else big = `<button class="addbig done" data-action="practice"><span aria-hidden="true">✓</span>Alles erledigt <small>· Üben</small></button>`;
   const tiles = langs().map((L) => {
-    const d = dueInfo(L.code), cs = cardsOf(L.code), mm = countByState(L.code), act = cs.length - mm.susp;
+    const d = dueInfo({ lang: L.code }), cs = cardsOf(L.code), mm = countByState(L.code), act = cs.length - mm.susp;
     return `<button class="tile" data-action="lang" data-arg="${esc(L.code)}">
       <span class="tile-l"><span class="tile-t" style="color:${L.color}">${esc(L.name)}</span>
         <span class="tile-v">${cs.length ? (d.due ? `${num(d.due)} fällig${d.nw ? ` <span class="tile-s">· ${num(d.nw)} neu</span>` : ""}` : d.nw ? `${num(d.nw)} neue Karten` : "Für heute erledigt ✓") : `<span class="tile-s">Noch keine Karten – tippen zum Starten</span>`}</span>
@@ -121,6 +124,7 @@ function viewHub() {
       ${spark(histArr(L.code, 14, "all"), L.color)}<span class="chev" aria-hidden="true">›</span></button>`;
   }).join("");
   const verbs = state.cards.filter((c) => c.type === "verb").length;
+  const sentences = n ? sentenceBank(null).length : 0;
   return `
     <header class="hubhead">
       <div class="brand"><h1 class="wordmark">P<b>L</b>M</h1><span class="label">Personal Language Management</span></div>
@@ -128,10 +132,12 @@ function viewHub() {
     </header>
     ${big}
     <div class="hubrow"><button class="searchbar hubsearch" data-action="nav" data-arg="search">${ICON_SEARCH}<span>Karten suchen</span></button><button class="sqbtn" data-action="add" aria-label="Neue Karte">+</button></div>
-    ${n && (lastBackupDays() == null ? n >= 30 && Date.now() - Math.min(...state.cards.map((c) => c.created)) > 7 * 864e5 : lastBackupDays() > 14) ? `<button class="notice" data-action="export-json">Letztes Backup: ${esc(lastBackupText())} · Jetzt sichern ›</button>` : ""}
+    ${n && !syncOn() && (lastBackupDays() == null ? n >= 30 && Date.now() - Math.min(...state.cards.map((c) => c.created)) > 7 * 864e5 : lastBackupDays() > 14) ? `<button class="notice" data-action="export-json">Letztes Backup: ${esc(lastBackupText())} · Jetzt sichern ›</button>` : ""}
     <nav class="tiles" aria-label="Sprachen">${tiles}<button class="tile dash" data-action="add-lang"><span class="tile-l"><span class="tile-t" style="font-size:20px;color:var(--muted)">+ Sprache</span><span class="tile-s">Spanisch, Französisch, Portugiesisch …</span></span><span></span><span class="chev" aria-hidden="true">›</span></button></nav>
     <div class="minitiles">
-      <button class="mtile" data-action="drill-any"><span class="tile-t">Konjugation</span>${verbs ? `<span class="tile-v">${num(verbs)}</span><span class="tile-s">Verben – Formen schnell üben</span>` : `<span class="tile-s">Verbformen trainieren</span>`}</button>
+      <button class="mtile" data-action="build-any"><span class="tile-t">Sätze bauen</span>${sentences ? `<span class="tile-v">${num(sentences)}</span><span class="tile-s">Sätze aus deinen Wörtern</span>` : `<span class="tile-s">Sätze bilden und korrigieren lassen</span>`}</button>
+      <button class="mtile" data-action="drill-any"><span class="tile-t">Konjugation</span>${verbs ? `<span class="tile-v">${num(verbs)}</span><span class="tile-s">Verben – Formen üben</span>` : `<span class="tile-s">Verbformen trainieren</span>`}</button>
+      <button class="mtile" data-action="import-any"><span class="tile-t">Importieren</span><span class="tile-s">Foto, PDF oder Liste in Karten verwandeln</span></button>
       <button class="mtile" data-action="nav" data-arg="stats"><span class="tile-t">Statistik</span><span class="tile-v">${num(m.known)}</span><span class="tile-s">Karten sicher gelernt</span></button>
     </div>
     <section class="accounts" aria-label="Heute">
@@ -143,25 +149,30 @@ function viewHub() {
         <div class="acc"><span class="label">Zeit</span><b>${td.s ? Math.max(1, Math.round(td.s / 60)) + " Min." : "–"}</b></div>
       </div>
       <div class="ytd"><span class="label">Diese Woche</span><b>${num(week)}</b><span class="label">Karten</span></div>
+      ${syncOn() ? `<button class="syncline" data-action="sync-now" id="syncLine">${esc(syncStatusText())}</button>` : ""}
     </section>`;
 }
 
+function deckRows(L) {
+  return decksOf(L.code).map((d) => {
+    const dd = dueInfo({ lang: L.code, deck: d.name }), m = countByState({ lang: L.code, deck: d.name });
+    const act = d.n - m.susp;
+    return navRow("deck", d.name, d.name, `${plural(d.n, "Karte", "Karten")}${act ? ` · ${Math.round(m.known / act * 100)} % sicher` : ""}${m.new ? ` · ${num(m.new)} noch neu` : ""}`,
+      dd.due ? `<span class="acc-t">${num(dd.due)}</span><small>fällig</small>` : dd.nw ? `<small>${num(dd.nw)} neu</small>` : "", badgeTxt(d.name.slice(0, 2), L.color));
+  }).join("");
+}
 function viewLang(v) {
   const L = langOf(v.p);
   if (!L) return `${backBar()}<h1 class="vtitle">Sprache nicht gefunden</h1>`;
-  const cs = cardsOf(L.code), d = dueInfo(L.code), m = countByState(L.code);
+  const cs = cardsOf(L.code), d = dueInfo({ lang: L.code }), m = countByState(L.code);
   const head = `${backBar()}<h1 class="vtitle" style="color:${L.color}">${esc(L.name)}</h1>`;
   const packs = STARTER[L.code] || [];
+  const lp = ` data-p="${esc(L.code)}"`;
   if (!cs.length) return `${head}
-    <section class="empty"><strong>Noch keine Karten</strong><span>${packs.length ? "Lade einen Starter-Wortschatz, leg eigene Karten an oder importiere eine Liste (z. B. aus Quizlet, Anki oder Excel)." : "Leg eigene Karten an oder importiere eine Liste (z. B. aus Quizlet, Anki oder Excel)."}</span>
-      <div class="btnrow">${packs.length ? `<button class="btn primary" data-action="nav" data-arg="starter" data-p="${esc(L.code)}">Starter-Wortschatz</button>` : ""}<button class="btn" data-action="add">+ Karte</button><button class="btn" data-action="nav" data-arg="import" data-p="${esc(L.code)}">Importieren</button></div></section>
-    <section class="sec">${navRow("lang-settings", L.code, "Spracheinstellungen", "Neue Karten pro Tag, Richtung, Zeiten, Aussprache")}</section>`;
-  const topics = topicsOf(L.code);
-  const topicRows = topics.map((t) => {
-    const tc = cs.filter((c) => (c.topic || "") === t), dd = dueInfo(L.code, t), unseen = tc.filter((c) => !c.susp && !Object.keys(c.srs).length).length, known = tc.filter((c) => cardState(c) === "known").length;
-    return navRow("topic", t, t || "Ohne Thema", `${plural(tc.length, "Karte", "Karten")}${known ? ` · ${num(known)} sicher` : ""}${unseen ? ` · ${num(unseen)} noch neu` : ""}`, dd.due ? `<span class="acc-t">${num(dd.due)}</span><small>fällig</small>` : "", badgeTxt((t || "–").slice(0, 2), L.color));
-  }).join("");
-  const verbs = cs.filter((c) => c.type === "verb").length;
+    <section class="empty"><strong>Noch keine Karten</strong><span>${packs.length ? "Lade ein Starter-Paket, fotografiere eine Vokabelliste, lade ein PDF aus deinem Kurs hoch oder leg eigene Karten an." : "Fotografiere eine Vokabelliste, lade ein PDF hoch, importiere eine Liste oder leg eigene Karten an."}</span>
+      <div class="btnrow">${packs.length ? `<button class="btn primary" data-action="nav" data-arg="starter"${lp}>Starter-Pakete</button>` : ""}<button class="btn" data-action="nav" data-arg="import"${lp}>Foto / PDF / Liste</button><button class="btn" data-action="add">+ Karte</button></div></section>
+    <section class="sec">${navRow("lang-settings", L.code, "Spracheinstellungen", "Neue Karten pro Tag, Richtung, Zeiten, Stimme")}</section>`;
+  const verbs = cs.filter((c) => c.type === "verb").length, sb = sentenceBank(L.code).length;
   return `${head}
     <section class="hero">
       <span class="label">Heute dran</span>
@@ -176,21 +187,61 @@ function viewLang(v) {
       <div class="stat"><span class="label">Im Lernen</span><span class="v" style="color:#3FA9FF">${num(m.learn + m.hard)}</span></div>
       <div class="stat"><span class="label">Sicher</span><span class="v pos">${num(m.known)}</span></div>
     </section>
-    <section class="sec" aria-labelledby="hTop">
-      <div class="sechead"><h2 class="sectitle" id="hTop">Themen</h2><button class="more" data-action="cards" data-arg="">Alle Karten ›</button></div>
-      ${topicRows}
+    <section class="sec" aria-labelledby="hDecks">
+      <div class="sechead"><h2 class="sectitle" id="hDecks">Projekte</h2><button class="more" data-action="cards" data-arg="">Alle Karten ›</button></div>
+      ${deckRows(L)}
     </section>
-    <section class="sec" aria-labelledby="hConj">
-      <div class="sechead"><h2 class="sectitle" id="hConj">Konjugation</h2></div>
-      ${navRow("nav", "verbs", "Verbtabellen", verbs ? `${plural(verbs, "Verb", "Verben")} · aktiv: ${L.active.join(", ") || "keine Zeit"}` : "Noch keine Verben – leg eins an", "", badgeTxt("V", L.color)).replace('data-arg="verbs"', `data-arg="verbs" data-p="${esc(L.code)}"`)}
-      ${verbs ? navRow("drill", L.code, "Formen schnell üben", "Zufällige Personen und Zeiten abfragen", "", badgeTxt("⚡", L.color)) : ""}
+    <section class="sec" aria-labelledby="hPrac">
+      <div class="sechead"><h2 class="sectitle" id="hPrac">Üben</h2></div>
+      ${navRow("build", L.code, "Sätze bauen", sb ? `${plural(sb, "Satz", "Sätze")} – aus Bausteinen oder frei tippen, mit Korrektur` : "Sätze entstehen aus Beispielsätzen und Satzkarten", "", badgeTxt("✎", L.color))}
+      ${navRow("nav", "verbs", "Konjugation", verbs ? `${plural(verbs, "Verb", "Verben")} · aktiv: ${L.active.join(", ") || "keine Zeit"}` : "Noch keine Verben – leg eins an", "", badgeTxt("V", L.color), lp)}
+      ${verbs ? navRow("drill", L.code, "Formen schnell üben", "Zufällige Personen und Zeiten", "", badgeTxt("⚡", L.color)) : ""}
+      ${m.hard ? navRow("cards-hard", L.code, `Schwierige Karten (${m.hard})`, "Oft vergessen – gezielt üben oder Eselsbrücke ergänzen", "", badgeTxt("!", "#FF4F45")) : ""}
     </section>
-    ${m.hard ? `<section class="sec">${navRow("cards-hard", L.code, `Schwierige Karten (${m.hard})`, "Oft vergessen – gezielt üben oder Eselsbrücke ergänzen", "", badgeTxt("!", "#FF4F45"))}</section>` : ""}
     <section class="sec" aria-labelledby="hMore">
       <div class="sechead"><h2 class="sectitle" id="hMore">Mehr</h2></div>
-      ${packs.length ? navRow("nav", "starter", "Starter-Wortschatz", packs.map((p) => p.name).join(", ")).replace('data-arg="starter"', `data-arg="starter" data-p="${esc(L.code)}"`) : ""}
-      ${navRow("nav", "import", "Importieren", "Liste einfügen oder CSV aus Quizlet, Anki, Excel").replace('data-arg="import"', `data-arg="import" data-p="${esc(L.code)}"`)}
+      ${navRow("nav", "import", "Importieren", "Foto, PDF aus dem Kurs oder Liste (Quizlet, Anki, Excel)", "", "", lp)}
+      ${packs.length ? navRow("nav", "starter", "Starter-Pakete", packs.map((p) => p.name).join(", "), "", "", lp) : ""}
       ${navRow("lang-settings", L.code, "Spracheinstellungen", `${L.newPerDay} neue pro Tag · ${L.dirs === "both" ? "beide Richtungen" : L.dirs === "f" ? "nur Deutsch → " + L.name : "nur " + L.name + " → Deutsch"}`)}
+    </section>`;
+}
+
+function lastTest(code, deck) {
+  const list = state.tests[`${code}|${deck}`] || [];
+  return list.length ? list[list.length - 1] : null;
+}
+function viewDeck(v) {
+  const p = v.p || {}, L = langOf(p.lang);
+  const cs = L ? state.cards.filter((c) => c.lang === L.code && c.deck === p.deck) : [];
+  if (!L || !cs.length) return `${backBar()}<h1 class="vtitle">Projekt leer</h1><p class="hint">In diesem Projekt sind keine Karten mehr.</p>`;
+  const d = dueInfo({ lang: L.code, deck: p.deck }), m = countByState({ lang: L.code, deck: p.deck }), lt = lastTest(L.code, p.deck);
+  const topics = topicsOf(L.code, p.deck);
+  const rows = topics.map((t) => {
+    const tc = cs.filter((c) => (c.topic || "") === t), dd = dueInfo({ lang: L.code, deck: p.deck, topic: t });
+    const unseen = tc.filter((c) => !c.susp && !isLearned(c)).length, known = tc.filter((c) => cardState(c) === "known").length;
+    return navRow("topic", t, t || "Ohne Thema", `${plural(tc.length, "Karte", "Karten")}${known ? ` · ${num(known)} sicher` : ""}${unseen ? ` · ${num(unseen)} noch neu` : ""}`, dd.due ? `<span class="acc-t">${num(dd.due)}</span><small>fällig</small>` : "", badgeTxt((t || "–").replace(/^L\d+\s*·\s*/, "").slice(0, 2), L.color));
+  }).join("");
+  const sb = sentenceBank(L.code, p.deck).length;
+  return `${backBar()}
+    <h1 class="vtitle">${esc(p.deck)}</h1>
+    <p class="meta">${esc(L.name)} · ${plural(cs.length, "Karte", "Karten")} · ${plural(topics.length, "Thema", "Themen")}</p>
+    <section class="stats" aria-label="Kartenstand">
+      <div class="stat"><span class="label">Heute dran</span><span class="v acc-t">${num(d.total)}</span></div>
+      <div class="stat"><span class="label">Im Lernen</span><span class="v" style="color:#3FA9FF">${num(m.learn + m.hard)}</span></div>
+      <div class="stat"><span class="label">Sicher</span><span class="v pos">${num(m.known)}</span></div>
+    </section>
+    <div class="btnrow">${d.total ? `<button class="btn primary grow" data-action="learn-deck">▶ Lernen (${num(d.total)})</button>` : d.moreNew ? `<button class="btn primary grow" data-action="learn-deck-more">+ 10 neue Karten</button>` : ""}<button class="btn${d.total || d.moreNew ? "" : " grow"}" data-action="practice-deck">Üben</button></div>
+    <div class="actgrid">
+      <button class="mtile" data-action="test-deck"><span class="tile-t">Test</span><span class="tile-s">${lt ? `Zuletzt ${lt.s} % · ${esc(dayMonFmt.format(dateOfDay(keyDay(lt.d))))}` : "Gemischte Fragen mit Note"}</span></button>
+      <button class="mtile" data-action="build-deck"${sb ? "" : " disabled"}><span class="tile-t">Sätze bauen</span><span class="tile-s">${sb ? plural(sb, "Satz", "Sätze") : "Keine Sätze in diesem Projekt"}</span></button>
+    </div>
+    <section class="sec" aria-labelledby="hTop">
+      <div class="sechead"><h2 class="sectitle" id="hTop">Themen</h2><button class="more" data-action="deck-cards">Alle Karten ›</button></div>
+      ${rows}
+    </section>
+    <section class="sec">
+      ${navRow("deck-rename", p.deck, "Projekt umbenennen", "")}
+      <button class="row nobadge nochev" data-action="deck-delete"><span class="main"><span class="t1 neg">${state.armed === "deck" ? `Wirklich ${plural(cs.length, "Karte", "Karten")} löschen?` : "Projekt löschen"}</span><span class="t2">Löscht alle Karten dieses Projekts samt Fortschritt</span></span><span></span></button>
     </section>`;
 }
 
@@ -198,8 +249,7 @@ function viewCards(v) {
   const p = v.p || {}, L = langOf(p.lang);
   if (!L) return `${backBar()}<h1 class="vtitle">Nicht gefunden</h1>`;
   const filt = state.listFilter;
-  let list = cardsOf(L.code);
-  if (p.topic != null) list = list.filter((c) => (c.topic || "") === p.topic);
+  let list = state.cards.filter((c) => inScope(c, { lang: L.code, deck: p.deck, topic: p.topic }));
   if (p.verbs) list = list.filter((c) => c.type === "verb");
   const counts = { all: list.length, new: 0, learn: 0, known: 0, hard: 0, susp: 0 };
   const stOf = new Map(list.map((c) => { const s = cardState(c); counts[s]++; return [c.id, s]; }));
@@ -207,12 +257,13 @@ function viewCards(v) {
   shown.sort((a, b) => a.created - b.created);
   state.scopeIds = shown.map((c) => c.id);
   const cap = state.sel ? shown : shown.slice(0, state.showAll ? 5000 : 200);
-  const title = p.hard ? "Schwierige Karten" : p.topic != null ? (p.topic || "Ohne Thema") : "Alle Karten";
-  const dd = dueInfo(L.code, p.topic != null ? p.topic : undefined);
+  const title = p.hard ? "Schwierige Karten" : p.topic != null ? (p.topic || "Ohne Thema") : p.deck != null ? p.deck : "Alle Karten";
+  const scoped = p.topic != null || p.deck != null;
+  const dd = dueInfo({ lang: L.code, deck: p.deck, topic: p.topic });
   return `${backBar()}
     <h1 class="vtitle">${esc(title)}</h1>
-    <p class="meta">${esc(L.name)} · ${plural(list.length, "Karte", "Karten")}</p>
-    <div class="btnrow">${p.topic != null && dd.total ? `<button class="btn primary grow" data-action="learn-topic">▶ Lernen (${num(dd.total)})</button>` : ""}<button class="btn${p.topic != null && dd.total ? "" : " grow"}" data-action="practice-scope">Diese Karten üben</button><button class="btn" data-action="add">+ Karte</button></div>
+    <p class="meta">${esc([L.name, p.topic != null ? p.deck : ""].filter(Boolean).join(" · "))} · ${plural(list.length, "Karte", "Karten")}</p>
+    <div class="btnrow">${scoped && dd.total ? `<button class="btn primary grow" data-action="learn-scope">▶ Lernen (${num(dd.total)})</button>` : ""}<button class="btn${scoped && dd.total ? "" : " grow"}" data-action="practice-scope">Diese Karten üben</button><button class="btn" data-action="add">+ Karte</button></div>
     <div class="pills" role="group" aria-label="Filter">${[["all", "Alle"], ["new", "Neu"], ["learn", "Lernen"], ["known", "Sicher"], ["hard", "Schwierig"], ["susp", "Pausiert"]].filter(([k]) => k === "all" || counts[k] || filt === k).map(([k, t]) => `<button data-action="listfilter" data-arg="${k}" aria-pressed="${filt === k}">${t} ${counts[k]}</button>`).join("")}</div>
     ${shown.length ? selToolbar() : ""}
     <section class="sec" aria-label="Karten">${cap.map(cardRow).join("") || `<p class="hint" style="padding:12px 0">Keine Karten in dieser Auswahl.</p>`}</section>
@@ -224,13 +275,13 @@ function viewVerbs(v) {
   if (!L) return `${backBar()}<h1 class="vtitle">Nicht gefunden</h1>`;
   const list = cardsOf(L.code).filter((c) => c.type === "verb").sort((a, b) => a.created - b.created);
   return `${backBar()}
-    <h1 class="vtitle">Verben</h1>
+    <h1 class="vtitle">Konjugation</h1>
     <p class="meta">${esc(L.name)} · ${plural(list.length, "Verb", "Verben")}</p>
     <section class="card"><span class="label">Abgefragte Zeiten</span>
       <div class="chiprow wrap">${L.tenses.map((t) => `<button class="fchip" data-action="tense-toggle" data-arg="${esc(t.n)}" aria-pressed="${L.active.includes(t.n)}">${esc(t.n)}</button>`).join("")}</div>
       <p>Jede aktive Zeit wird pro Verb als eigene Karte wiederholt. Starte mit wenigen Zeiten und schalte weitere dazu, sobald sie sitzen.</p></section>
     <div class="btnrow">${list.length ? `<button class="btn primary grow" data-action="drill" data-arg="${esc(L.code)}">⚡ Formen schnell üben</button>` : ""}<button class="btn" data-action="add-verb">+ Verb</button></div>
-    <section class="sec">${list.map((c) => { const n = L.tenses.filter((t) => c.tables && c.tables[t.n] && c.tables[t.n].some(Boolean)).length; return navRow("verb", c.id, c.tg, `${c.de}${c.tables ? ` · ${n} ${n === 1 ? "Zeit" : "Zeiten"}` : ""}`, cardState(c) === "hard" ? '<span class="tag bad">Schwierig</span>' : "", badgeTxt(c.tg.slice(0, 2), L.color)); }).join("") || `<p class="hint" style="padding:12px 0">Noch keine Verben.</p>`}</section>`;
+    <section class="sec">${list.map((c) => { const n = L.tenses.filter((t) => c.tables && c.tables[t.n] && c.tables[t.n].some(Boolean)).length; return navRow("verb", c.id, c.tg, `${c.de}${c.tables ? ` · ${n} ${n === 1 ? "Zeit" : "Zeiten"}` : ""} · ${c.deck}`, cardState(c) === "hard" ? '<span class="tag bad">Schwierig</span>' : "", badgeTxt(c.tg.slice(0, 2), L.color)); }).join("") || `<p class="hint" style="padding:12px 0">Noch keine Verben.</p>`}</section>`;
 }
 
 function verbTablesHTML(c, L, onlyActive) {
@@ -251,6 +302,7 @@ function viewVerb(v) {
   return `${backBar()}
     <h1 class="vtitle" style="color:${L.color}">${esc(c.tg)}</h1>
     <p class="meta">${esc(c.de)}${c.aux === "essere" ? " · Passato prossimo mit essere" : ""}</p>
+    ${c.ex ? `<section class="card"><p style="color:var(--ink)">${esc(c.ex)}</p>${c.exDe ? `<p>${esc(c.exDe)}</p>` : ""}</section>` : ""}
     ${c.note ? `<section class="card"><p>${esc(c.note)}</p></section>` : ""}
     <div class="btnrow"><button class="btn grow" data-action="card" data-arg="${esc(c.id)}">Bearbeiten</button>${canSpeak() ? `<button class="btn" data-action="speak" data-arg="${esc(c.tg)}">${ICON_SPEAK} Anhören</button>` : ""}</div>
     ${verbTablesHTML(c, L, false)}`;
@@ -261,7 +313,7 @@ function searchList() {
   return state.cards.filter((c) => {
     if (state.q.lang !== "all" && c.lang !== state.q.lang) return false;
     if (!toks.length) return false;
-    const hay = bareAns(normAns([c.tg, c.de, c.ex, c.exDe, c.note, c.topic, c.tables ? Object.values(c.tables).flat().join(" ") : ""].join(" ")));
+    const hay = bareAns(normAns([c.tg, c.de, c.ex, c.exDe, c.note, c.topic, c.deck, c.tables ? Object.values(c.tables).flat().join(" ") : ""].join(" ")));
     return toks.every((t) => hay.includes(t));
   }).slice(0, 300);
 }
@@ -284,6 +336,7 @@ function viewStats() {
   let secs = 0, rv = 0, ok = 0, nw = 0;
   for (let i = 0; i < days; i++) { const d = dayTotals(today() - i); secs += d.s; rv += d.r; ok += d.ok; nw += d.n; }
   const perLang = langs().map((L) => { const mm = countByState(L.code), n = mm.new + mm.learn + mm.known + mm.hard; return n + mm.susp ? `<div class="row nochev" style="grid-template-columns:auto minmax(0,1fr) auto">${badgeTxt(L.name.slice(0, 2), L.color)}<span class="main"><span class="t1">${esc(L.name)}</span><span class="t2">${num(mm.known)} sicher · ${num(mm.learn + mm.hard)} im Lernen · ${num(mm.new)} neu</span>${stateBar(mm)}</span><span class="val">${num(n)}</span></div>` : ""; }).join("");
+  const tests = Object.entries(state.tests).flatMap(([k, list]) => (list || []).map((t) => ({ ...t, k }))).sort((a, b) => b.at - a.at).slice(0, 5);
   return `${backBar()}
     <h1 class="vtitle">Statistik</h1>
     <div class="pills" role="group" aria-label="Zeitraum">${[[30, "30 Tage"], [90, "90 Tage"], [365, "1 Jahr"]].map(([k, t]) => `<button data-action="statrange" data-arg="${k}" aria-pressed="${days === k}">${t}</button>`).join("")}</div>
@@ -296,125 +349,38 @@ function viewStats() {
       <div class="stat"><span class="label">Lerntage</span><span class="v">${num(stk.days)}</span></div>
     </section>
     <section class="sec" aria-labelledby="hPL"><div class="sechead"><h2 class="sectitle" id="hPL">Sprachen</h2><span class="hint">${num(m.known)} sicher</span></div>${perLang || `<p class="hint">Noch keine Karten.</p>`}
-      <div class="legend" style="margin-top:10px"><span><i style="background:var(--pos)"></i>Sicher (Abstand ≥ 3 Wochen)</span><span><i style="background:#3FA9FF"></i>Im Lernen</span><span><i style="background:var(--neg)"></i>Schwierig</span></div></section>`;
+      <div class="legend" style="margin-top:10px"><span><i style="background:var(--pos)"></i>Sicher (Abstand ≥ 3 Wochen)</span><span><i style="background:#3FA9FF"></i>Im Lernen</span><span><i style="background:var(--neg)"></i>Schwierig</span></div></section>
+    ${tests.length ? `<section class="sec" aria-labelledby="hTests"><div class="sechead"><h2 class="sectitle" id="hTests">Tests</h2></div>${tests.map((t) => { const [code, deck] = t.k.split("|"); return `<div class="row nochev nobadge"><span class="main"><span class="t1">${esc(deck)}</span><span class="t2">${esc(langName(code))} · ${esc(dateFmt.format(new Date(t.at)))} · ${plural(t.n, "Frage", "Fragen")}</span></span><span class="val ${t.s >= 75 ? "pos" : t.s < 60 ? "neg" : ""}">${t.s} %</span></div>`; }).join("")}</section>` : ""}`;
 }
 
 function viewStarter(v) {
   const L = langOf(v.p), packs = (L && STARTER[L.code]) || [];
   return `${backBar()}
-    <h1 class="vtitle">Starter-Wortschatz</h1>
-    <p class="meta">${esc(L ? L.name : "")}</p>
+    <h1 class="vtitle">Starter-Pakete</h1>
+    <p class="meta">${esc(L ? L.name : "")} · jedes Paket wird ein Projekt</p>
     ${packs.map((p) => {
-      const have = state.cards.filter((c) => c.pack === p.id).length, total = packCards(L.code, p).length;
+      const have = state.cards.filter((c) => c.lang === L.code && c.deck === p.name).length, total = packCards(L.code, p).length;
       return `<section class="card"><div class="split"><h2>${esc(p.name)}</h2><span class="hint">${num(total)} Karten</span></div><p>${esc(p.desc)}</p>
-        <div class="btnrow">${have ? `<span class="hint" style="align-self:center;flex:1">✓ ${num(have)} geladen</span><button class="btn danger${state.armed === "pack:" + p.id ? " armed" : ""}" data-action="pack-remove" data-arg="${esc(p.id)}">${state.armed === "pack:" + p.id ? `${num(have)} Karten löschen?` : "Entfernen"}</button>` : `<button class="btn primary grow" data-action="pack-load" data-arg="${esc(p.id)}">Laden</button>`}</div></section>`;
-    }).join("") || `<p class="hint">Für diese Sprache gibt es noch keinen Starter. Importiere eine Liste oder leg Karten an.</p>`}
-    <p class="hint">Neue Karten kommen nach und nach – so viele pro Tag, wie du in den Spracheinstellungen festlegst.</p>`;
+        <div class="btnrow">${have ? `<span class="hint" style="align-self:center;flex:1">✓ ${num(have)} im Projekt</span><button class="btn" data-action="pack-load" data-arg="${esc(p.id)}">Ergänzen</button><button class="btn danger${state.armed === "pack:" + p.id ? " armed" : ""}" data-action="pack-remove" data-arg="${esc(p.id)}">${state.armed === "pack:" + p.id ? `${num(have)} löschen?` : "Entfernen"}</button>` : `<button class="btn primary grow" data-action="pack-load" data-arg="${esc(p.id)}">Laden</button>`}</div></section>`;
+    }).join("") || `<p class="hint">Für diese Sprache gibt es noch keine Starter-Pakete. Importiere ein Foto, PDF oder eine Liste.</p>`}
+    <p class="hint">Neue Karten kommen nach und nach – so viele pro Tag, wie du in den Spracheinstellungen festlegst. Karten, die es schon gibt, werden nicht doppelt angelegt.</p>`;
 }
 
-/* ---------- Import ---------- */
-const IMP_FIELDS = [["tg", "Fremdsprache *"], ["de", "Deutsch *"], ["ex", "Beispielsatz"], ["topic", "Thema"], ["note", "Notiz"]];
-function impRecords(imp) {
-  const m = imp.map, rows = imp.header ? imp.rows.slice(1) : imp.rows, have = new Set(state.cards.map(cardSig));
-  const out = [];
-  for (const r of rows) {
-    const g = (k) => (m[k] >= 0 ? (r[m[k]] || "").trim() : "");
-    const tg = g("tg"), de = g("de");
-    if (!tg || !de) { out.push({ skip: "empty" }); continue; }
-    const isCloze = /\{\{.+?\}\}/.test(tg);
-    const c = normCard({ lang: imp.lang, type: isCloze ? "cloze" : "word", tg, de, ex: g("ex"), note: g("note"), topic: g("topic") || imp.topic || "Import", created: 0 });
-    if (!c) { out.push({ skip: "empty" }); continue; }
-    if (have.has(cardSig(c))) { out.push({ skip: "dup", c }); continue; }
-    have.add(cardSig(c)); out.push({ c });
-  }
-  return out;
-}
-function viewImport(v) {
-  const imp = state.imp && state.imp.lang === v.p ? state.imp : (state.imp = { lang: v.p, text: "", rows: null, topic: "" });
-  const L = langOf(imp.lang);
-  let body = "";
-  if (imp.rows && imp.rows.length) {
-    const cols = Math.max(...imp.rows.slice(0, 50).map((r) => r.length));
-    const colName = (i) => (imp.header ? imp.rows[0][i] : "") || `Spalte ${i + 1}`;
-    const opts = (sel) => `<option value="-1"${sel < 0 ? " selected" : ""}>—</option>` + Array.from({ length: cols }, (_, i) => `<option value="${i}"${sel === i ? " selected" : ""}>${esc(colName(i))}</option>`).join("");
-    const recs = impRecords(imp), ok = recs.filter((r) => r.c && !r.skip), dup = recs.filter((r) => r.skip === "dup").length, empty = recs.filter((r) => r.skip === "empty").length;
-    body = `<section class="card"><h2>Spalten</h2>
-      <p>${num(imp.rows.length - (imp.header ? 1 : 0))} Zeilen erkannt. Wähle, welche Spalte was ist.</p>
-      <div class="mapgrid">${IMP_FIELDS.map(([k, l]) => `<div class="field"><label class="label" for="map-${k}">${esc(l)}</label><select class="psel" id="map-${k}" data-action="impmap" data-field="${k}">${opts(imp.map[k])}</select></div>`).join("")}</div>
-      <div class="btnrow"><button class="btn" data-action="imp-swap">⇄ Sprachen tauschen</button></div>
-      <label class="check"><input type="checkbox" data-action="imp-header"${imp.header ? " checked" : ""}><span>Erste Zeile ist eine Überschrift</span></label>
-      <div class="field"><label class="label" for="impTopic">Thema für Zeilen ohne Thema</label><input id="impTopic" class="psel" style="background-image:none" value="${esc(imp.topic)}" placeholder="Import" maxlength="40"></div></section>
-      <section class="card"><h2>Vorschau</h2>
-      ${ok.length ? `<div class="tablewrap"><table><thead><tr><th>${esc(L.name)}</th><th>Deutsch</th></tr></thead><tbody>${ok.slice(0, 8).map((r) => `<tr><td>${esc(r.c.type === "cloze" ? parseCloze(r.c.tg).text : r.c.tg)}</td><td>${esc(r.c.de)}</td></tr>`).join("")}</tbody></table></div>` : `<p>Nichts Neues zu importieren.</p>`}
-      <div class="sumlist"><div><span>Neue Karten</span><b>${num(ok.length)}</b></div>${dup ? `<div><span class="hint">Schon vorhanden (übersprungen)</span><b class="hint">${num(dup)}</b></div>` : ""}${empty ? `<div><span class="hint">Leer oder unvollständig (übersprungen)</span><b class="hint">${num(empty)}</b></div>` : ""}</div>
-      <div class="btnrow"><button class="btn primary grow" data-action="imp-run"${ok.length ? "" : " disabled"}>${num(ok.length)} Karten importieren</button></div></section>`;
-  }
-  return `${backBar()}
-    <h1 class="vtitle">Importieren</h1>
-    <p class="meta">${esc(L ? L.name : "")}</p>
-    <section class="card"><h2>Liste einfügen</h2>
-      <p>Eine Karte pro Zeile: Wort und Übersetzung getrennt durch Tab, Semikolon, Komma oder „ - “. Quizlet-Export (Tab), Anki-Textexport und Excel/Numbers-Tabellen funktionieren direkt. Lückensätze mit {{Lücke}} werden erkannt.</p>
-      <textarea class="paste" id="impText" placeholder="la casa;das Haus&#10;il cane;der Hund&#10;Vado {{a}} Roma.;Ich fahre nach Rom.">${esc(imp.text)}</textarea>
-      <div class="btnrow"><button class="btn primary" data-action="imp-parse">Erkennen</button><label class="btn filebtn">Datei wählen<input type="file" id="impFile" accept=".csv,.tsv,.txt,text/csv,text/plain"></label></div>
-      ${imp.error ? `<p class="neg">${esc(imp.error)}</p>` : ""}</section>
-    ${body}`;
-}
-
-/* ---------- Settings ---------- */
-const BACKUP_KEY = KEYS.backup;
-function lastBackupDays() { try { const v = localStorage.getItem(BACKUP_KEY); return v ? Math.floor((Date.now() - Date.parse(v)) / 864e5) : null; } catch { return null; } }
-function lastBackupText() { const d = lastBackupDays(); return d == null ? "noch nie" : d === 0 ? "heute" : d === 1 ? "gestern" : `vor ${d} Tagen`; }
-function openMode() { try { const v = localStorage.getItem(KEYS.open); return ["splash", "menu", "learn"].includes(v) ? v : "splash"; } catch { return "splash"; } }
-function storageKB() { let n = 0; try { for (const k of Object.values(KEYS)) n += (localStorage.getItem(k) || "").length; } catch { /* ignore */ } return Math.round(n / 1024); }
-function viewSettings() {
-  const S = state.settings, sel = (id, cur, opts) => `<select class="psel" id="${id}" data-action="setting">${opts.map(([v, t]) => `<option value="${v}"${String(cur) === String(v) ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
-  const badgeOk = !!navigator.setAppBadge;
-  return `${backBar()}
-    <h1 class="vtitle">Einstellungen</h1>
-    <section class="card"><h2>Lernen</h2>
-      <div class="field"><span class="label">Antwortmodus</span>${modePills()}</div>
-      <p><b>Umdrehen</b>: selbst einschätzen. <b>Tippen</b>: Antwort schreiben, PLM prüft – auch Akzente, Artikel und Tippfehler. <b>Auswahl</b>: eine von vier Antworten.</p>
-      <div class="mapgrid">
-        <label class="field"><span class="label">Ziel: so viel behalten</span>${sel("setRet", S.ret, [[0.8, "80 % – weniger Wiederholungen"], [0.85, "85 %"], [0.9, "90 % – empfohlen"], [0.95, "95 % – mehr Wiederholungen"]])}</label>
-        <label class="field"><span class="label">Wiederholungen pro Tag max.</span>${sel("setMax", S.maxReviews, [[50, "50"], [100, "100"], [200, "200"], [500, "500"], [9999, "unbegrenzt"]])}</label>
-        <label class="field"><span class="label">Neuer Lerntag beginnt um</span>${sel("setRoll", S.roll, [0, 1, 2, 3, 4, 5, 6].map((h) => [h, `${h}:00 Uhr`]))}</label>
-      </div>
-      <label class="check"><input type="checkbox" id="setIntro" data-action="setting"${S.intro ? " checked" : ""}><span>Neue Karten zuerst zeigen, dann abfragen<br><span class="hint">Sonst wird ein neues Wort gleich abgefragt.</span></span></label>
-      <label class="check"><input type="checkbox" id="setSpeak" data-action="setting"${S.autoSpeak ? " checked" : ""}><span>Fremdsprache automatisch vorlesen${canSpeak() ? "" : '<br><span class="hint">Wird von diesem Browser nicht unterstützt.</span>'}</span></label>
-      <p>PLM plant jede Karte mit FSRS – dem Verfahren, das auch Anki nutzt: Was du gut kannst, kommt seltener, was du vergisst, früher wieder.</p></section>
-    <section class="card"><h2>Erinnerung</h2>
-      <p>iPhone-Web-Apps können sich nicht selbst zu einer Uhrzeit melden. Am zuverlässigsten ist ein täglicher Kalender-Termin mit Hinweis – PLM erstellt ihn für dich.</p>
-      <div class="two"><label class="field"><span class="label">Täglich um</span><input type="time" id="setRemind" class="psel" style="background-image:none;padding-right:15px" value="${esc(S.remind)}"></label><div style="display:flex;align-items:end"><button class="btn primary" style="width:100%" data-action="ics">Zum Kalender</button></div></div>
-      ${badgeOk ? `<label class="check"><input type="checkbox" id="setBadge" data-action="setting"${S.badge ? " checked" : ""}><span>Fällige Karten als Zahl am App-Symbol<br><span class="hint">Fragt einmal nach der Mitteilungs-Erlaubnis. Die Zahl aktualisiert sich, wenn du PLM öffnest oder schließt.</span></span></label>` : ""}</section>
-    <section class="card"><h2>Sprachen</h2>
-      ${langs().map((L) => navRow("lang-settings", L.code, L.name, `${L.newPerDay} neue pro Tag · ${plural(cardsOf(L.code).length, "Karte", "Karten")}`, "", badgeTxt(L.name.slice(0, 2), L.color))).join("")}
-      <div class="btnrow"><button class="btn" data-action="add-lang">+ Sprache hinzufügen</button></div></section>
-    <section class="card"><h2>Daten &amp; Backup</h2>
-      <p>Alles liegt nur auf diesem Gerät, in PLM. Nichts wird verschickt, es läuft auch offline. Wenn du PLM vom Home-Bildschirm löschst, sind die Daten weg – sichere also regelmäßig ein Backup, z. B. in iCloud Drive.</p>
-      <p>Letztes Backup: ${esc(lastBackupText())} · ${plural(state.cards.length, "Karte", "Karten")} · ${num(storageKB())} KB</p>
-      <div class="btnrow"><button class="btn primary" data-action="export-json">Backup sichern</button><label class="btn filebtn">Backup laden<input type="file" id="backupFile" accept=".json,application/json"></label><button class="btn" data-action="export-csv">CSV exportieren</button></div></section>
-    <section class="card"><label class="field"><span class="label">Wenn PLM öffnet</span>${sel("setOpen", openMode(), [["splash", "Startbildschirm, dann Menü"], ["menu", "Menü"], ["learn", "Direkt lernen"]])}</label></section>
-    <section class="card"><h2>Zurücksetzen</h2><p>Löscht alle Karten, Fortschritte und Statistiken auf diesem Gerät.</p>
-      <div class="btnrow"><button class="btn danger${state.armed === "wipe" ? " armed" : ""}" data-action="wipe">${state.armed === "wipe" ? "Wirklich alles löschen?" : "Alles löschen"}</button></div></section>
-    <p class="hint">PLM ${esc(window.PLM_VERSION || "")} · Personal Language Management</p>
-    <footer class="motto"><span>Sometimes I feel like giving up.</span><span>Then I remember I have a lot of people to prove wrong.</span></footer>`;
-}
-
-const VIEWS = { hub: viewHub, lang: viewLang, cards: viewCards, verbs: viewVerbs, verb: viewVerb, search: viewSearch, stats: viewStats, starter: viewStarter, import: viewImport, settings: viewSettings };
+const VIEWS = { hub: viewHub, lang: viewLang, deck: viewDeck, cards: viewCards, verbs: viewVerbs, verb: viewVerb, search: viewSearch, stats: viewStats, starter: viewStarter };
 
 function render() {
   dueCache.clear();
   const top = state.stack[state.stack.length - 1], root = $("view");
   const focusId = document.activeElement && document.activeElement.id;
   charts = [];
-  root.innerHTML = VIEWS[top.v](top);
+  root.innerHTML = (VIEWS[top.v] || viewHub)(top);
   root.classList.toggle("hub", top.v === "hub");
   document.body.classList.toggle("hubmode", top.v === "hub");
   root.classList.remove("enter");
   if (state.enter) { void root.offsetWidth; root.classList.add("enter"); state.enter = false; }
   if (focusId && root.contains($(focusId))) $(focusId).focus({ preventScroll: true });
   charts.forEach((c) => drawChart($(c.id), c));
-  $("addBtn").hidden = !["lang", "cards", "verbs"].includes(top.v) || !!state.sel;
+  $("addBtn").hidden = !["lang", "deck", "cards", "verbs"].includes(top.v) || !!state.sel;
   const bar = $("selbar");
   bar.hidden = !state.sel;
   if (state.sel) {

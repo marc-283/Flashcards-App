@@ -1,7 +1,7 @@
 {
   "name": "Personal Language Management",
   "short_name": "PLM",
-  "description": "Flashcards für Englisch, Italienisch und mehr – mit Wiederholungsplan, Konjugation und Statistik.",
+  "description": "Flashcards für Englisch, Italienisch und mehr – mit Wiederholungsplan, Aussprache, Konjugation, Sätzebauen und Import aus Fotos und PDFs.",
   "lang": "de",
   "start_url": "./",
   "scope": "./",
