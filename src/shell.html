@@ -17,6 +17,24 @@
 </style>
 <script>
 window.PLM_VERSION = "{{VERSION}}";
+/* App language: German or English (Settings › App language). Texts are written in German and looked up in UI_EN. */
+let UI = "de";
+try { const s = JSON.parse(localStorage.getItem("plm.settings.v1") || "null"); UI = (s && s.ui) || localStorage.getItem("plm.ui") || (/^de\b/i.test(navigator.language || "de") ? "de" : "en"); } catch { UI = "de"; }
+if (UI !== "en") UI = "de";
+document.documentElement.lang = UI;
+const UI_EN = {{I18N}};
+function T(s, a) {
+  let r = UI === "en" && Object.prototype.hasOwnProperty.call(UI_EN, s) ? UI_EN[s] : s;
+  if (a) r = r.replace(/\{(\d+)\}/g, (_, i) => (a[i] == null ? "" : a[i]));
+  return r;
+}
+/* static texts of this page (sheets, buttons) – translated once at start */
+function translateStatic(root) {
+  if (UI !== "en") return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) { const t = n.nodeValue.trim(); if (t && UI_EN[t] != null) n.nodeValue = n.nodeValue.replace(t, UI_EN[t]); }
+  for (const el of root.querySelectorAll("[placeholder],[aria-label],[title]")) for (const a of ["placeholder", "aria-label", "title"]) { const v = el.getAttribute(a); if (v && UI_EN[v] != null) el.setAttribute(a, UI_EN[v]); }
+}
 if ("serviceWorker" in navigator && location.protocol !== "file:") addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>
 </head>

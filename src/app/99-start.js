@@ -1,5 +1,6 @@
 /* Runs last, after every file has defined its functions and constants */
 /* ================= Start ================= */
+translateStatic(document.body);
 loadAll();
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch { /* not supported */ }
 buildSplash();

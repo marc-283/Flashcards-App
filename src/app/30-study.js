@@ -1,13 +1,13 @@
 /* ================= Study session: learn, practice, drill, test, build ================= */
-const GRADE_TXT = ["Nochmal", "Schwer", "Gut", "Leicht"];
-const WHY_TXT = { accent: "Fast – achte auf den Akzent", article: "Fast – der Artikel fehlt oder stimmt nicht", typo: "Fast – kleiner Tippfehler" };
+const GRADE_TXT = [T("Nochmal"), T("Schwer"), T("Gut"), T("Leicht")];
+const WHY_TXT = { accent: T("Fast – achte auf den Akzent"), article: T("Fast – der Artikel fehlt oder stimmt nicht"), typo: T("Fast – kleiner Tippfehler") };
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const newSession = (kind, o, queue) => ({ kind, o, queue, total: queue.length, done: 0, correct: 0, missed: new Set(), wrongIds: new Set(), history: [], t0: nowTs(), secs: 0 });
 
 function startLearn(o) {
   o = o || {};
   const q = buildQueue(o);
-  if (!q.length) { toast(o.extraNew ? "Keine weiteren neuen Karten" : "Für heute ist nichts mehr fällig"); return false; }
+  if (!q.length) { toast(o.extraNew ? T("Keine weiteren neuen Karten") : T("Für heute ist nichts mehr fällig")); return false; }
   state.study = newSession("learn", o, q.map((e) => ({ ...e, intro: !!e.isNew && state.settings.intro })));
   openStudy();
   return true;
@@ -33,7 +33,7 @@ function practiceEntries(o) {
 }
 function startPractice(o) {
   const q = practiceEntries(o);
-  if (!q.length) { toast("Keine passenden Karten zum Üben"); return; }
+  if (!q.length) { toast(T("Keine passenden Karten zum Üben")); return; }
   state.study = newSession("practice", o, q);
   openStudy();
 }
@@ -50,7 +50,7 @@ function drillEntries(o) {
 }
 function startDrill(o) {
   const q = drillEntries(o);
-  if (!q.length) { toast("Für diese Zeiten sind noch keine Formen eingetragen"); return; }
+  if (!q.length) { toast(T("Für diese Zeiten sind noch keine Formen eingetragen")); return; }
   state.study = newSession("drill", o, q);
   openStudy();
 }
@@ -71,7 +71,7 @@ function testEntries(o) {
 }
 function startTest(o) {
   const q = testEntries(o);
-  if (q.length < 3) { toast("Für einen Test braucht das Projekt mindestens 3 Karten"); return; }
+  if (q.length < 3) { toast(T("Für einen Test braucht das Projekt mindestens 3 Karten")); return; }
   state.study = newSession("test", o, q);
   state.study.answers = [];
   openStudy();
@@ -101,9 +101,9 @@ function answerFor(c, L) {
 const isSentence = (c) => c.pos === "s" || wordCount(c.tg) >= 5;
 function faceOf(c, k, L) {
   const ml = meaningName(c);
-  if (k === "f") return { dir: `${ml} → ${L.name}`, prompt: c.de, ans: answerFor(c, L), shown: c.tg, native: false, hint: c.pos === "n" && hasGenderedNouns(L) ? "mit Artikel" : "", sayAns: c.tg };
-  if (k === "r") return { dir: `${L.name} → ${ml}`, prompt: c.tg, ans: c.de, native: !c.ml, sayPrompt: c.tg };
-  if (k === "c") { const cz = parseCloze(c.tg); return { dir: "Lückensatz", cloze: cz, prompt: cz.text, hint: c.de, sayAns: fillCloze(c.tg) }; }
+  if (k === "f") return { dir: `${ml} → ${lname(L)}`, prompt: c.de, ans: answerFor(c, L), shown: c.tg, native: false, hint: c.pos === "n" && hasGenderedNouns(L) ? T("mit Artikel") : "", sayAns: c.tg };
+  if (k === "r") return { dir: `${lname(L)} → ${ml}`, prompt: c.tg, ans: c.de, native: !c.ml, sayPrompt: c.tg };
+  if (k === "c") { const cz = parseCloze(c.tg); return { dir: T("Lückensatz"), cloze: cz, prompt: cz.text, hint: c.de, sayAns: fillCloze(c.tg) }; }
   const tense = k.slice(2), t = L.tenses.find((x) => x.n === tense) || { n: tense };
   const labels = tenseLabels(L, t), forms = (c.tables && c.tables[tense]) || [];
   return { dir: tense, prompt: c.tg, hint: c.de, table: { labels, forms, given: t.given || [] }, sayAns: forms.map((f, i) => (labels[i] && !t.given ? `${labels[i].split("/")[0]} ${f}` : f)).filter((x) => x.trim()).join(", ") };
@@ -317,29 +317,29 @@ function prepTiles(e) {
 function studyTop(S) {
   const total = S.done + S.queue.length, pct = total ? S.done / total * 100 : 100;
   return `<div class="st-top">
-    <button class="mbtn" data-action="study-close" aria-label="Beenden">✕</button>
+    <button class="mbtn" data-action="study-close" aria-label="${T("Beenden")}">✕</button>
     <div class="st-prog" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${S.done}"><span style="width:${pct.toFixed(1)}%"></span></div>
     <span class="st-count"><b>${num(S.done)}</b> / ${num(total)}</span>
-    <button class="mbtn" data-action="study-undo" aria-label="Rückgängig"${S.history.length && S.kind !== "test" ? "" : " disabled"}>↶</button>
+    <button class="mbtn" data-action="study-undo" aria-label="${T("Rückgängig")}"${S.history.length && S.kind !== "test" ? "" : " disabled"}>↶</button>
   </div>`;
 }
 /* Big speaker, slow speaker and (on the answer side) the microphone */
 function sayRow(text, back) {
   if (!text || (!canSpeak() && !(back && canListen()))) return "";
-  return `<div class="say">${canSpeak() ? `<button class="say-big" data-action="say" data-arg="${esc(text)}" aria-label="Anhören">${ICON_SPEAK_BIG}</button><button class="say-small" data-action="say-slow" data-arg="${esc(text)}" aria-label="Langsam anhören">${ICON_SLOW}</button>` : ""}${back && canListen() ? `<button class="say-small mic" data-action="mic" data-arg="${esc(text)}" aria-label="Nachsprechen und prüfen">${ICON_MIC}</button>` : ""}</div>${back ? micHTML() : ""}`;
+  return `<div class="say">${canSpeak() ? `<button class="say-big" data-action="say" data-arg="${esc(text)}" aria-label="${T("Anhören")}">${ICON_SPEAK_BIG}</button><button class="say-small" data-action="say-slow" data-arg="${esc(text)}" aria-label="${T("Langsam anhören")}">${ICON_SLOW}</button>` : ""}${back && canListen() ? `<button class="say-small mic" data-action="mic" data-arg="${esc(text)}" aria-label="${T("Nachsprechen und prüfen")}">${ICON_MIC}</button>` : ""}</div>${back ? micHTML() : ""}`;
 }
 function micHTML() {
   const S = state.study, m = S && S.mic;
   if (!m) return `<div class="mic-res" id="micRes" hidden></div>`;
-  if (m.state === "listen") return `<div class="mic-res" id="micRes"><span class="pulse"></span>Sprich jetzt …</div>`;
+  if (m.state === "listen") return `<div class="mic-res" id="micRes"><span class="pulse"></span>${T("Sprich jetzt …")}</div>`;
   if (m.error) return `<div class="mic-res" id="micRes">${esc(m.error)}</div>`;
   const words = tokSplit(m.target);
-  const verdict = m.score >= 0.9 ? ["ok", "Sehr gut verstanden!"] : m.score >= 0.6 ? ["close", "Fast – die rot markierten Wörter nochmal üben"] : ["bad", "Nicht verstanden – hör es dir an und versuch es nochmal"];
-  return `<div class="mic-res" id="micRes"><b class="fc-res ${verdict[0]}">${verdict[1]}</b><span class="mic-words">${words.map((w, i) => `<span class="${m.hit[i] ? "pos" : "neg"}">${esc(w)}</span>`).join(" ")}</span><small>Gehört: „${esc(m.heard || "–")}“</small></div>`;
+  const verdict = m.score >= 0.9 ? ["ok", T("Sehr gut verstanden!")] : m.score >= 0.6 ? ["close", T("Fast – die rot markierten Wörter nochmal üben")] : ["bad", T("Nicht verstanden – hör es dir an und versuch es nochmal")];
+  return `<div class="mic-res" id="micRes"><b class="fc-res ${verdict[0]}">${verdict[1]}</b><span class="mic-words">${words.map((w, i) => `<span class="${m.hit[i] ? "pos" : "neg"}">${esc(w)}</span>`).join(" ")}</span><small>${T("Gehört: „{0}“", [esc(m.heard || "–")])}</small></div>`;
 }
 function exampleHTML(c) {
   let h = "";
-  if (c.ex && c.type !== "cloze") h += `<div class="fc-ex"><div class="fc-ex-row"><span>${esc(c.ex)}</span>${canSpeak() ? `<button class="say-mini" data-action="say" data-arg="${esc(c.ex)}" aria-label="Beispiel anhören">${ICON_SPEAK}</button>` : ""}</div>${c.exDe ? `<small>${esc(c.exDe)}</small>` : ""}</div>`;
+  if (c.ex && c.type !== "cloze") h += `<div class="fc-ex"><div class="fc-ex-row"><span>${esc(c.ex)}</span>${canSpeak() ? `<button class="say-mini" data-action="say" data-arg="${esc(c.ex)}" aria-label="${T("Beispiel anhören")}">${ICON_SPEAK}</button>` : ""}</div>${c.exDe ? `<small>${esc(c.exDe)}</small>` : ""}</div>`;
   if (c.note) h += `<div class="fc-note">${esc(c.note)}</div>`;
   return h;
 }
@@ -351,7 +351,7 @@ function tableGrid(fc, mode, res, typed) {
     if (!f && !given.includes(i)) return "";
     const lab = `<span class="p">${esc(labels[i] || "")}</span>`;
     if (given.includes(i)) return `${lab}<span class="f">${esc(f)}</span>`;
-    if (mode === "ask") return `${lab}<input data-i="${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="${++k === ask.length ? "done" : "next"}" aria-label="${esc(labels[i] || "Form")}">`;
+    if (mode === "ask") return `${lab}<input data-i="${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="${++k === ask.length ? "done" : "next"}" aria-label="${esc(labels[i] || T("Form"))}">`;
     const p = res && res.parts[i], cls = p ? (p.res === "exact" ? "ok" : p.res === "close" ? "close" : "bad") : "";
     const yours = p && p.res !== "exact" && typed ? typed[ask.indexOf(i)] : "";
     return `${lab}<span class="f ${cls}">${esc(f)}${yours ? `<small>${esc(yours)}</small>` : ""}</span>`;
@@ -360,23 +360,23 @@ function tableGrid(fc, mode, res, typed) {
 function resLine(res) {
   if (!res) return "";
   const p = res.parts.filter(Boolean), bad = p.filter((x) => x.res === "wrong").length, close = p.filter((x) => x.res === "close");
-  if (res.dunno) return `<div class="fc-res bad">So geht's:</div>`;
-  if (p.length > 1) return `<div class="fc-res ${bad ? "bad" : close.length ? "close" : "ok"}">${bad ? `${p.length - bad} von ${p.length} richtig` : close.length ? `Fast alles richtig${close[0].why ? " – " + WHY_TXT[close[0].why].split("– ")[1] : ""}` : "Alles richtig!"}</div>`;
+  if (res.dunno) return `<div class="fc-res bad">${T("So geht's:")}</div>`;
+  if (p.length > 1) return `<div class="fc-res ${bad ? "bad" : close.length ? "close" : "ok"}">${bad ? T("{0} von {1} richtig", [p.length - bad, p.length]) : close.length ? T("Fast alles richtig{0}", [close[0].why ? " – " + WHY_TXT[close[0].why].split("– ")[1] : ""]) : T("Alles richtig!")}</div>`;
   const r = p[0];
-  return `<div class="fc-res ${r.res === "exact" ? "ok" : r.res === "close" ? "close" : "bad"}">${r.res === "exact" ? "Richtig!" : r.res === "close" ? WHY_TXT[r.why] || "Fast richtig" : "Leider falsch"}</div>`;
+  return `<div class="fc-res ${r.res === "exact" ? "ok" : r.res === "close" ? "close" : "bad"}">${r.res === "exact" ? T("Richtig!") : r.res === "close" ? WHY_TXT[r.why] || T("Fast richtig") : T("Leider falsch")}</div>`;
 }
 function cmpHTML(cmp) {
   if (!cmp || !cmp.toks) return "";
-  return `<div class="cmp">${cmp.toks.map((t) => `<span class="w ${t.st}">${esc(t.w)}</span>`).join(" ")}${cmp.missing.length ? `<small>Fehlt: ${cmp.missing.map(esc).join(", ")}</small>` : ""}</div>`;
+  return `<div class="cmp">${cmp.toks.map((t) => `<span class="w ${t.st}">${esc(t.w)}</span>`).join(" ")}${cmp.missing.length ? `<small>${T("Fehlt: {0}", [cmp.missing.map(esc).join(", ")])}</small>` : ""}</div>`;
 }
-const cardWrap = (S, label, color, body, tap, extraCls) => `<div class="fcard${tap ? " tap" : ""}${S.flipIn ? " flip-in" : ""}${extraCls ? " " + extraCls : ""}"${tap ? ` data-action="${tap}"` : ""}><div class="fc-head"><span class="label" style="color:${color}">${esc(label)}</span><div class="fc-tools"><button class="mbtn" data-action="study-edit" aria-label="Karte bearbeiten">✎</button></div></div><div class="fc-body">${body}</div></div>`;
+const cardWrap = (S, label, color, body, tap, extraCls) => `<div class="fcard${tap ? " tap" : ""}${S.flipIn ? " flip-in" : ""}${extraCls ? " " + extraCls : ""}"${tap ? ` data-action="${tap}"` : ""}><div class="fc-head"><span class="label" style="color:${color}">${esc(label)}</span><div class="fc-tools"><button class="mbtn" data-action="study-edit" aria-label="${T("Karte bearbeiten")}">✎</button></div></div><div class="fc-body">${body}</div></div>`;
 
 function renderStudy() {
   const S = state.study, root = $("studyIn");
   if (!S) return;
   if (S.stage === "done") { root.innerHTML = doneHTML(S); return; }
   const e = S.queue[0], c = cardById(e.id), L = langOf(c.lang);
-  const kindTag = S.kind === "practice" ? "Üben · " : S.kind === "test" ? "Test · " : S.kind === "build" ? "Sätze bauen · " : e.isNew ? "Neu · " : e.again ? "Nochmal · " : "";
+  const kindTag = S.kind === "practice" ? `${T("Üben ·")} ` : S.kind === "test" ? `${T("Test ·")} ` : S.kind === "build" ? `${T("Sätze bauen ·")} ` : e.isNew ? `${T("Neu ·")} ` : e.again ? `${T("Nochmal ·")} ` : "";
   let html;
   if (e.k === "b") html = renderBuild(S, e, c, L, kindTag);
   else if (e.k.startsWith("d:")) html = renderDrill(S, e, c, L, kindTag);
@@ -392,21 +392,21 @@ function renderIntro(S, e, c, L) {
     if (fc.table) body = `<span class="label acc-t">${esc(fc.dir)}</span><div class="fc-prompt">${esc(c.tg)}</div>${sayRow(c.tg)}`;
     else if (fc.cloze) body = `<div class="cloze">${esc(c.tg).replace(/\{\{(.+?)\}\}/g, '<span class="gap">…</span>')}</div><div class="fc-sub">${esc(c.de)}</div>`;
     else body = `<div class="fc-prompt${c.tg.length > 28 ? " long" : ""}">${esc(c.tg)}</div>${sayRow(c.tg)}`;
-    body += `<div class="fc-tap">Tippen zum Umdrehen</div>`;
-    return cardWrap(S, `Neu · ${L.name}`, L.color, body, "intro-flip") + `<div class="st-act"><button class="btn primary" data-action="intro-flip">Umdrehen</button></div><p class="kbd">Leertaste: umdrehen</p>`;
+    body += `<div class="fc-tap">${T("Tippen zum Umdrehen")}</div>`;
+    return cardWrap(S, T("Neu · {0}", [lname(L)]), L.color, body, "intro-flip") + `<div class="st-act"><button class="btn primary" data-action="intro-flip">${T("Umdrehen")}</button></div><p class="kbd">${T("Leertaste: umdrehen")}</p>`;
   }
   if (fc.table) body = `<div class="fc-front">${esc(c.tg)} · ${esc(c.de)}</div><span class="label acc-t">${esc(fc.dir)}</span>${tableGrid(fc, "shown")}${sayRow(fc.sayAns, true)}`;
   else if (fc.cloze) body = `<div class="cloze">${esc(c.tg).replace(/\{\{(.+?)\}\}/g, '<span class="gap">$1</span>')}</div><div class="fc-sub">${esc(c.de)}</div>${sayRow(fc.sayAns, true)}`;
   else body = `<div class="fc-front">${esc(c.tg)}</div><div class="fc-ans big">${esc(c.de)}</div>${sayRow(c.tg, true)}`;
   body += exampleHTML(c);
-  return cardWrap(S, `Neu · ${L.name}`, L.color, body) + `<div class="st-act"><button class="btn" data-action="intro-known">Kenne ich schon</button><button class="btn primary" data-action="intro-next">Merken ›</button></div><p class="kbd">Enter: merken · K: kenne ich schon</p>`;
+  return cardWrap(S, T("Neu · {0}", [lname(L)]), L.color, body) + `<div class="st-act"><button class="btn" data-action="intro-known">${T("Kenne ich schon")}</button><button class="btn primary" data-action="intro-next">${T("Merken ›")}</button></div><p class="kbd">${T("Enter: merken · K: kenne ich schon")}</p>`;
 }
 function renderAsk(S, e, c, L, kindTag) {
   const fc = faceOf(c, e.k, L), mode = modeFor(e, c), shown = S.stage === "shown", res = S.res;
   let body = "", foot = "";
   if (fc.table) {
     body = shown ? `<div class="fc-front">${esc(c.tg)} · ${esc(c.de)}</div><span class="label acc-t">${esc(fc.dir)}</span>` : `<span class="label acc-t">${esc(fc.dir)}</span><div class="fc-prompt">${esc(c.tg)}</div><div class="fc-sub">${esc(c.de)}</div>`;
-    if (!shown) body += mode === "type" ? `<form id="typeForm" style="width:100%">${tableGrid(fc, "ask")}<button type="submit" hidden></button></form>` : `${sayRow(c.tg)}<div class="fc-tap">Tippen zum Umdrehen</div>`;
+    if (!shown) body += mode === "type" ? `<form id="typeForm" style="width:100%">${tableGrid(fc, "ask")}<button type="submit" hidden></button></form>` : `${sayRow(c.tg)}<div class="fc-tap">${T("Tippen zum Umdrehen")}</div>`;
     else body += `${resLine(res)}${tableGrid(fc, "shown", res, S.typed)}${sayRow(fc.sayAns, true)}`;
   } else if (fc.cloze) {
     const gaps = fc.cloze.gaps;
@@ -414,9 +414,9 @@ function renderAsk(S, e, c, L, kindTag) {
     const sentence = esc(c.tg).replace(/\{\{(.+?)\}\}/g, (_, g) => { const i = gi++, p = res && res.parts[i]; return shown ? `<span class="gap"${p ? ` style="color:var(--${p.res === "exact" ? "pos" : p.res === "close" ? "accent" : "neg"})"` : ""}>${g}</span>` : `<span class="gap">${gaps.length > 1 ? i + 1 : "…"}</span>`; });
     body = `<div class="cloze">${sentence}</div><div class="fc-sub">${esc(c.de)}</div>`;
     if (!shown) {
-      if (mode === "type") body += `<form id="typeForm" style="width:100%;display:flex;flex-direction:column;gap:8px">${gaps.map((_, i) => `<input class="typein" data-i="${i}" placeholder="${gaps.length > 1 ? `Lücke ${i + 1}` : "Lücke"}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Lücke ${i + 1}">`).join("")}<button type="submit" hidden></button></form>`;
+      if (mode === "type") body += `<form id="typeForm" style="width:100%;display:flex;flex-direction:column;gap:8px">${gaps.map((_, i) => `<input class="typein" data-i="${i}" placeholder="${gaps.length > 1 ? T("Lücke {0}", [i + 1]) : T("Lücke")}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="${T("Lücke {0}", [i + 1])}">`).join("")}<button type="submit" hidden></button></form>`;
       else if (mode === "choice") body += choicesHTML(e, null);
-      else body += `<div class="fc-tap">Tippen zum Umdrehen</div>`;
+      else body += `<div class="fc-tap">${T("Tippen zum Umdrehen")}</div>`;
     } else {
       body += resLine(res);
       if (mode === "choice") body += choicesHTML(e, res, gaps[0]);
@@ -426,9 +426,9 @@ function renderAsk(S, e, c, L, kindTag) {
   } else if (!shown) {
     body = `<div class="fc-prompt${fc.prompt.length > 28 ? " long" : ""}">${esc(fc.prompt)}</div>${fc.hint ? `<div class="fc-sub">${esc(fc.hint)}</div>` : ""}`;
     if (e.k === "r") body += sayRow(c.tg);
-    if (mode === "type") body += `<form id="typeForm" style="width:100%"><input class="typein" data-i="0" placeholder="${fc.native ? "Auf Deutsch" : "Auf " + esc(e.k === "f" ? L.name : meaningName(c))}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Antwort"></form>`;
+    if (mode === "type") body += `<form id="typeForm" style="width:100%"><input class="typein" data-i="0" placeholder="${fc.native ? T("Auf Deutsch") : `${T("Auf")} ` + esc(e.k === "f" ? lname(L) : meaningName(c))}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="${T("Antwort")}"></form>`;
     else if (mode === "choice") body += choicesHTML(e, null);
-    else body += `<div class="fc-tap">Tippen zum Umdrehen</div>`;
+    else body += `<div class="fc-tap">${T("Tippen zum Umdrehen")}</div>`;
   } else {
     body = `<div class="fc-front">${esc(fc.prompt)}</div>`;
     if (mode === "choice") body += `${resLine(res)}${choicesHTML(e, res, e.k === "f" ? fc.shown : fc.ans)}`;
@@ -444,46 +444,46 @@ function renderAsk(S, e, c, L, kindTag) {
   if (shown) body += exampleHTML(c);
   const tap = !shown && mode === "flip" ? "study-reveal" : "";
   if (!shown) {
-    if (mode === "type") foot = `<div class="st-act"><button class="btn" data-action="study-dunno">Weiß nicht</button><button class="btn primary" data-action="study-check">Prüfen</button></div>`;
-    else if (mode === "flip") foot = `<div class="st-act"><button class="btn primary" data-action="study-reveal">Umdrehen</button></div>`;
+    if (mode === "type") foot = `<div class="st-act"><button class="btn" data-action="study-dunno">${T("Weiß nicht")}</button><button class="btn primary" data-action="study-check">${T("Prüfen")}</button></div>`;
+    else if (mode === "flip") foot = `<div class="st-act"><button class="btn primary" data-action="study-reveal">${T("Umdrehen")}</button></div>`;
   } else foot = gradeButtons(S, e, c, res, mode);
-  const keys = !shown ? (mode === "flip" ? "Leertaste: umdrehen" : mode === "choice" ? "1–4: Antwort wählen" : "Enter: prüfen") : S.kind === "learn" ? "1–4: bewerten · Enter: Vorschlag" : "Enter: weiter";
+  const keys = !shown ? (mode === "flip" ? T("Leertaste: umdrehen") : mode === "choice" ? T("1–4: Antwort wählen") : T("Enter: prüfen")) : S.kind === "learn" ? T("1–4: bewerten · Enter: Vorschlag") : T("Enter: weiter");
   return cardWrap(S, kindTag + fc.dir, L.color, body, tap) + foot + `<p class="kbd">${keys}</p>`;
 }
 function renderDrill(S, e, c, L, kindTag) {
   const tense = e.k.slice(2), t = L.tenses.find((x) => x.n === tense) || { n: tense }, labels = tenseLabels(L, t), form = c.tables[tense][e.i];
   const r = S.res && S.res.parts[0], shown = S.stage === "shown";
   const body = `<span class="label acc-t">${esc(tense)}</span><div class="fc-prompt">${esc(labels[e.i] || "")} …</div><div class="fc-sub">${esc(c.tg)} · ${esc(c.de)}</div>
-    ${!shown ? `<form id="typeForm" style="width:100%"><input class="typein" data-i="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Form"></form>`
+    ${!shown ? `<form id="typeForm" style="width:100%"><input class="typein" data-i="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="${T("Form")}"></form>`
       : `${resLine(S.res)}<div class="fc-ans big">${esc(form)}</div>${r && r.res !== "exact" && S.typed && S.typed[0] ? `<div class="fc-yours">${esc(S.typed[0])}</div>` : ""}${sayRow(`${(labels[e.i] || "").split("/")[0]} ${form}`, true)}`}`;
-  const foot = !shown ? `<div class="st-act"><button class="btn" data-action="study-dunno">Weiß nicht</button><button class="btn primary" data-action="study-check">Prüfen</button></div>`
+  const foot = !shown ? `<div class="st-act"><button class="btn" data-action="study-dunno">${T("Weiß nicht")}</button><button class="btn primary" data-action="study-check">${T("Prüfen")}</button></div>`
     : nextButtons(S, r && r.res !== "wrong");
-  return cardWrap(S, `${kindTag || ""}${L.name} · Konjugation`, L.color, body) + foot + `<p class="kbd">Enter: prüfen / weiter</p>`;
+  return cardWrap(S, T("{0}{1} · Konjugation", [kindTag || "", lname(L)]), L.color, body) + foot + `<p class="kbd">${T("Enter: prüfen / weiter")}</p>`;
 }
 function renderBuild(S, e, c, L, kindTag) {
   const mode = modeFor(e, c), shown = S.stage === "shown", res = S.res;
-  let body = `<span class="label acc-t">Übersetze ins ${esc(L.name)}e</span><div class="fc-prompt long">${esc(e.sent.de)}</div>`;
+  let body = `<span class="label acc-t">${T("Übersetze ins {0}e", [esc(lname(L))])}</span><div class="fc-prompt long">${esc(e.sent.de)}</div>`;
   let foot;
   if (!shown) {
     if (mode === "tiles") {
       const end = (e.sent.tg.match(/[.?!…]+$/) || [""])[0];
-      body += `<div class="tiles-ans" aria-label="Dein Satz">${e.picked.map((ti, j) => `<button class="tile-w on" data-action="tile-out" data-arg="${j}">${esc(e.tiles[ti].t)}</button>`).join("") || `<span class="hint">Tippe die Wörter in der richtigen Reihenfolge an</span>`}${e.picked.length && end ? `<span class="tile-end">${esc(end)}</span>` : ""}</div>
+      body += `<div class="tiles-ans" aria-label="${T("Dein Satz")}">${e.picked.map((ti, j) => `<button class="tile-w on" data-action="tile-out" data-arg="${j}">${esc(e.tiles[ti].t)}</button>`).join("") || `<span class="hint">${T("Tippe die Wörter in der richtigen Reihenfolge an")}</span>`}${e.picked.length && end ? `<span class="tile-end">${esc(end)}</span>` : ""}</div>
         <div class="tiles-pool">${e.tiles.map((x, i) => `<button class="tile-w${e.picked.includes(i) ? " used" : ""}" data-action="tile-in" data-arg="${i}"${e.picked.includes(i) ? " disabled" : ""}>${esc(x.t)}</button>`).join("")}</div>`;
-    } else body += `<form id="typeForm" style="width:100%"><textarea class="typein area" data-i="0" rows="2" placeholder="Auf ${esc(L.name)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Dein Satz"></textarea></form>`;
-    foot = `<div class="st-act"><button class="btn" data-action="study-dunno">Weiß nicht</button><button class="btn primary" data-action="study-check"${mode === "tiles" && !e.picked.length ? " disabled" : ""}>Prüfen</button></div>`;
+    } else body += `<form id="typeForm" style="width:100%"><textarea class="typein area" data-i="0" rows="2" placeholder="${T("Auf {0}", [esc(lname(L))])}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="${T("Dein Satz")}"></textarea></form>`;
+    foot = `<div class="st-act"><button class="btn" data-action="study-dunno">${T("Weiß nicht")}</button><button class="btn primary" data-action="study-check"${mode === "tiles" && !e.picked.length ? " disabled" : ""}>${T("Prüfen")}</button></div>`;
   } else {
     body += resLine(res);
     if (res && res.cmp && res.user && !(S.ai && S.ai.ok)) body += cmpHTML(res.cmp);
     body += `<div class="fc-ans big">${esc(e.sent.tg)}</div>${sayRow(e.sent.tg, true)}`;
-    if (S.ai) body += `<div class="ai-res">${S.ai.loading ? `<span class="pulse"></span>KI prüft …` : S.ai.error ? esc(S.ai.error) : `<b class="fc-res ${S.ai.ok ? "ok" : "bad"}">${S.ai.ok ? "Laut KI richtig" : "Laut KI nicht ganz richtig"}</b>${S.ai.corrected ? `<div>${esc(S.ai.corrected)}</div>` : ""}<small>${esc(S.ai.explanation || "")}</small>`}</div>`;
+    if (S.ai) body += `<div class="ai-res">${S.ai.loading ? `<span class="pulse"></span>${T("KI prüft …")}` : S.ai.error ? esc(S.ai.error) : `<b class="fc-res ${S.ai.ok ? "ok" : "bad"}">${S.ai.ok ? T("Laut KI richtig") : T("Laut KI nicht ganz richtig")}</b>${S.ai.corrected ? `<div>${esc(S.ai.corrected)}</div>` : ""}<small>${esc(S.ai.explanation || "")}</small>`}</div>`;
     const canAi = aiOn() && res && res.user && res.parts[0].res !== "exact" && !S.ai;
     foot = nextButtons(S, res && res.parts[0].res !== "wrong", canAi);
   }
-  return cardWrap(S, kindTag + `${L.name} · Satz`, L.color, body) + foot + `<p class="kbd">${shown ? "Enter: weiter" : "Enter: prüfen"}</p>`;
+  return cardWrap(S, kindTag + T("{0} · Satz", [lname(L)]), L.color, body) + foot + `<p class="kbd">${shown ? T("Enter: weiter") : T("Enter: prüfen")}</p>`;
 }
 function nextButtons(S, ok, canAi) {
   const typed = S.res && !S.res.dunno && S.res.parts[0] && S.res.parts[0].res === "wrong";
-  return `<div class="st-act">${canAi ? `<button class="btn" data-action="ai-check">KI fragen</button>` : ""}${!ok && typed ? `<button class="btn" data-action="study-override">War richtig ✓</button>` : ""}<button class="btn primary" data-action="study-grade" data-arg="${ok ? 3 : 1}">Weiter ›</button></div>`;
+  return `<div class="st-act">${canAi ? `<button class="btn" data-action="ai-check">${T("KI fragen")}</button>` : ""}${!ok && typed ? `<button class="btn" data-action="study-override">${T("War richtig ✓")}</button>` : ""}<button class="btn primary" data-action="study-grade" data-arg="${ok ? 3 : 1}">${T("Weiter ›")}</button></div>`;
 }
 function choicesHTML(e, res, right) {
   return `<div class="choices">${e.choices.map((t, i) => {
@@ -495,7 +495,7 @@ function choicesHTML(e, res, right) {
 function gradeButtons(S, e, c, res, mode) {
   const sug = res ? res.sug : 0;
   if (S.kind === "test") return nextButtons(S, sug > 1);
-  if (S.kind !== "learn") return `<div class="st-act"><button class="btn${sug === 1 ? " primary" : ""}" data-action="study-grade" data-arg="1">Nochmal</button><button class="btn${sug !== 1 ? " primary" : ""}" data-action="study-grade" data-arg="3">Gewusst ✓</button></div>`;
+  if (S.kind !== "learn") return `<div class="st-act"><button class="btn${sug === 1 ? " primary" : ""}" data-action="study-grade" data-arg="1">${T("Nochmal")}</button><button class="btn${sug !== 1 ? " primary" : ""}" data-action="study-grade" data-arg="3">${T("Gewusst ✓")}</button></div>`;
   const opts = srsOptions(c.srs[e.k] || null, srsCfg(e, c));
   return `<div class="grades">${opts.map((o, i) => `<button class="g${i + 1}${sug === i + 1 ? " sug" : ""}" data-action="study-grade" data-arg="${i + 1}"><b>${GRADE_TXT[i]}</b><small>${esc(fmtIvl(o))}</small></button>`).join("")}</div>`;
 }
@@ -504,28 +504,28 @@ function doneHTML(S) {
   let more = "", extra = "";
   if (S.kind === "learn") {
     const d = buildQueue({ ...S.o, countOnly: true });
-    more = d.total ? `<button class="btn primary" data-action="study-again">Weiter lernen (${num(d.total)})</button>` : d.moreNew ? `<button class="btn primary" data-action="study-more">+ 10 neue Karten</button>` : "";
-  } else more = `<button class="btn primary" data-action="study-repeat">${S.kind === "test" ? "Neuer Test" : "Noch eine Runde"}</button>`;
-  if (S.wrongIds.size && S.kind !== "learn") more += `<button class="btn" data-action="study-mistakes">Fehler üben (${S.wrongIds.size})</button>`;
+    more = d.total ? `<button class="btn primary" data-action="study-again">${T("Weiter lernen ({0})", [num(d.total)])}</button>` : d.moreNew ? `<button class="btn primary" data-action="study-more">${T("+ 10 neue Karten")}</button>` : "";
+  } else more = `<button class="btn primary" data-action="study-repeat">${S.kind === "test" ? T("Neuer Test") : T("Noch eine Runde")}</button>`;
+  if (S.wrongIds.size && S.kind !== "learn") more += `<button class="btn" data-action="study-mistakes">${T("Fehler üben ({0})", [S.wrongIds.size])}</button>`;
   if (S.kind === "test") {
     const wrong = S.answers.filter((a) => !a.ok).map((a) => cardById(a.id)).filter(Boolean);
-    extra = wrong.length ? `<section class="sec"><div class="sechead"><h2 class="sectitle">Fehler</h2></div>${wrong.map((c) => `<div class="row nochev nobadge"><span class="main"><span class="t1">${esc(c.type === "cloze" ? fillCloze(c.tg) : c.tg)}</span><span class="t2">${esc(c.de)}</span></span><span></span></div>`).join("")}</section>` : "";
+    extra = wrong.length ? `<section class="sec"><div class="sechead"><h2 class="sectitle">${T("Fehler")}</h2></div>${wrong.map((c) => `<div class="row nochev nobadge"><span class="main"><span class="t1">${esc(c.type === "cloze" ? fillCloze(c.tg) : c.tg)}</span><span class="t2">${esc(c.de)}</span></span><span></span></div>`).join("")}</section>` : "";
   }
-  const title = S.kind === "test" ? (pct >= 90 ? "Sehr gut!" : pct >= 75 ? "Gut!" : pct >= 60 ? "Bestanden" : "Noch nicht ganz") : pct >= 90 ? "Stark!" : pct >= 70 ? "Geschafft!" : "Dranbleiben!";
-  const label = { learn: "Sitzung beendet", drill: "Konjugation", test: `Test · ${S.o.deck || ""}`, build: "Sätze bauen", practice: "Übungsrunde" }[S.kind];
-  return `<div class="st-top"><button class="mbtn" data-action="study-close" aria-label="Schließen">✕</button><span></span><span></span><span></span></div>
+  const title = S.kind === "test" ? (pct >= 90 ? T("Sehr gut!") : pct >= 75 ? T("Gut!") : pct >= 60 ? T("Bestanden") : T("Noch nicht ganz")) : pct >= 90 ? T("Stark!") : pct >= 70 ? T("Geschafft!") : T("Dranbleiben!");
+  const label = { learn: T("Sitzung beendet"), drill: T("Konjugation"), test: T("Test · {0}", [dn(S.o.deck) || ""]), build: T("Sätze bauen"), practice: T("Übungsrunde") }[S.kind];
+  return `<div class="st-top"><button class="mbtn" data-action="study-close" aria-label="${T("Schließen")}">✕</button><span></span><span></span><span></span></div>
     <div class="st-done">
       <span class="label">${esc(label)}</span>
       <h1 class="vtitle">${title}</h1>
-      <section class="stats" aria-label="Ergebnis">
-        <div class="stat"><span class="label">${S.kind === "test" ? "Fragen" : S.kind === "build" ? "Sätze" : "Karten"}</span><span class="v">${num(S.done)}</span></div>
-        <div class="stat"><span class="label">${S.kind === "test" ? "Ergebnis" : "Auf Anhieb"}</span><span class="v ${pct >= 80 ? "pos" : pct < 60 ? "neg" : ""}">${pct} %</span></div>
-        <div class="stat"><span class="label">Zeit</span><span class="v">${mins} Min.</span></div>
+      <section class="stats" aria-label="${T("Ergebnis")}">
+        <div class="stat"><span class="label">${S.kind === "test" ? T("Fragen") : S.kind === "build" ? T("Sätze") : T("Karten")}</span><span class="v">${num(S.done)}</span></div>
+        <div class="stat"><span class="label">${S.kind === "test" ? T("Ergebnis") : T("Auf Anhieb")}</span><span class="v ${pct >= 80 ? "pos" : pct < 60 ? "neg" : ""}">${pct} %</span></div>
+        <div class="stat"><span class="label">${T("Zeit")}</span><span class="v">${T("{0} Min.", [mins])}</span></div>
       </section>
-      ${stk.cur ? `<p class="hint">🔥 ${plural(stk.cur, "Tag", "Tage")} in Folge gelernt${stk.cur >= stk.best && stk.cur > 1 ? " – neuer Rekord!" : ""}</p>` : ""}
-      <div class="btnrow">${more}<button class="btn" data-action="study-close">Fertig</button></div>
+      ${stk.cur ? `<p class="hint">${T("🔥 {0} in Folge gelernt{1}", [plural(stk.cur, T("Tag"), T("Tage")), stk.cur >= stk.best && stk.cur > 1 ? ` ${T("– neuer Rekord!")}` : ""])}</p>` : ""}
+      <div class="btnrow">${more}<button class="btn" data-action="study-close">${T("Fertig")}</button></div>
       ${extra}
-      ${S.kind === "learn" ? `<p class="hint">Die nächsten Wiederholungen plant PLM automatisch. Komm morgen wieder – kurze tägliche Runden bringen am meisten.</p>` : ""}
+      ${S.kind === "learn" ? `<p class="hint">${T("Die nächsten Wiederholungen plant PLM automatisch. Komm morgen wieder – kurze tägliche Runden bringen am meisten.")}</p>` : ""}
     </div>`;
 }
 
@@ -538,7 +538,7 @@ function micStart(target) {
   listen(code, (r) => {
     if (!state.study) return;
     if (r.error) {
-      const msg = r.error === "not-allowed" || r.error === "service-not-allowed" ? "Kein Zugriff aufs Mikrofon – erlaube es in den Einstellungen bzw. schalte „Diktieren“ ein." : r.error === "no-speech" ? "Nichts gehört – tippe aufs Mikrofon und sprich direkt los." : r.error === "unsupported" ? "Spracherkennung wird hier nicht unterstützt." : "Spracherkennung gerade nicht verfügbar – versuch es nochmal.";
+      const msg = r.error === "not-allowed" || r.error === "service-not-allowed" ? T("Kein Zugriff aufs Mikrofon – erlaube es in den Einstellungen bzw. schalte „Diktieren“ ein.") : r.error === "no-speech" ? T("Nichts gehört – tippe aufs Mikrofon und sprich direkt los.") : r.error === "unsupported" ? T("Spracherkennung wird hier nicht unterstützt.") : T("Spracherkennung gerade nicht verfügbar – versuch es nochmal.");
       S.mic = { error: msg, target };
     } else { const m = speechMatch(target, r.alts); S.mic = { target, score: m.score, heard: m.heard, hit: m.hit }; }
     const b = $("micRes"); if (b) b.outerHTML = micHTML();

@@ -2,13 +2,13 @@
 /* Streams the answer (server-sent events): keeps the connection busy, so Safari never cuts long PDF jobs off, and shows progress */
 async function aiCall({ system, content, schema, maxTokens, effort, model, onText }) {
   const cfg = aiCfg();
-  if (!cfg.key) throw new Error("Kein KI-Schlüssel hinterlegt (Einstellungen › KI-Assistent)");
-  if (navigator.onLine === false) throw new Error("Offline – die KI braucht eine Internetverbindung");
+  if (!cfg.key) throw new Error(T("Kein KI-Schlüssel hinterlegt (Einstellungen › KI-Assistent)"));
+  if (navigator.onLine === false) throw new Error(T("Offline – die KI braucht eine Internetverbindung"));
   const body = { model: model || cfg.model, max_tokens: maxTokens || 16000, stream: true, system, messages: [{ role: "user", content }], output_config: { effort: effort || "low", ...(schema ? { format: { type: "json_schema", schema } } : {}) } };
   let r;
   try {
     r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": cfg.key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify(body) });
-  } catch { throw new Error("Keine Verbindung zur KI – bist du online?"); }
+  } catch { throw new Error(T("Keine Verbindung zur KI – bist du online?")); }
   if (!r.ok) {
     let data = null; try { data = await r.json(); } catch { data = null; }
     throw aiError(r.status, (data && data.error && data.error.message) || "");
@@ -34,24 +34,24 @@ async function aiCall({ system, content, schema, maxTokens, effort, model, onTex
       for (;;) { const { value, done } = await rd.read(); if (done) break; feed(dec.decode(value, { stream: true })); if (fail) break; }
     } else feed(await r.text());
     feed("\n\n");
-  } catch { if (!fail) fail = new Error("Die Verbindung zur KI ist abgebrochen – bitte nochmal versuchen."); }
+  } catch { if (!fail) fail = new Error(T("Die Verbindung zur KI ist abgebrochen – bitte nochmal versuchen.")); }
   if (fail) throw fail;
-  if (stop === "refusal") throw new Error("Die KI hat diese Anfrage abgelehnt.");
-  if (stop === "max_tokens") throw new Error("Zu viel Material auf einmal – lade weniger Seiten hoch.");
+  if (stop === "refusal") throw new Error(T("Die KI hat diese Anfrage abgelehnt."));
+  if (stop === "max_tokens") throw new Error(T("Zu viel Material auf einmal – lade weniger Seiten hoch."));
   let json = null;
-  if (schema) { try { json = JSON.parse(text); } catch { throw new Error("Die KI-Antwort war unvollständig – bitte nochmal versuchen."); } }
+  if (schema) { try { json = JSON.parse(text); } catch { throw new Error(T("Die KI-Antwort war unvollständig – bitte nochmal versuchen.")); } }
   return { text, json, usage };
 }
 function aiError(status, msg) {
-  if (status === 401) return new Error("Der KI-Schlüssel ist ungültig.");
-  if (status === 402 || /credit|balance|billing/i.test(msg)) return new Error("Kein Guthaben mehr auf deinem Claude-Konto (platform.claude.com › Billing).");
-  if (status === 429) return new Error("Zu viele Anfragen – kurz warten und nochmal versuchen.");
-  if (status === 413 || /too large|request_too_large/i.test(msg)) return new Error("Die Datei ist zu groß für die KI – teile das PDF auf.");
-  if (status >= 500) return new Error("Die KI ist gerade überlastet – bitte gleich nochmal versuchen.");
-  return new Error(`KI-Fehler${status ? ` (${status})` : ""}${msg ? ": " + msg.slice(0, 160) : ""}`);
+  if (status === 401) return new Error(T("Der KI-Schlüssel ist ungültig."));
+  if (status === 402 || /credit|balance|billing/i.test(msg)) return new Error(T("Kein Guthaben mehr auf deinem Claude-Konto (platform.claude.com › Billing)."));
+  if (status === 429) return new Error(T("Zu viele Anfragen – kurz warten und nochmal versuchen."));
+  if (status === 413 || /too large|request_too_large/i.test(msg)) return new Error(T("Die Datei ist zu groß für die KI – teile das PDF auf."));
+  if (status >= 500) return new Error(T("Die KI ist gerade überlastet – bitte gleich nochmal versuchen."));
+  return new Error(T("KI-Fehler{0}{1}", [status ? ` (${status})` : "", msg ? ": " + msg.slice(0, 160) : ""]));
 }
 async function aiTest() {
-  try { const r = await aiCall({ system: "Antworte nur mit OK.", content: "Test", maxTokens: 400, model: "claude-haiku-5-5" }); toast(/ok/i.test(r.text) ? "KI erreichbar ✓" : "KI antwortet ✓"); }
+  try { const r = await aiCall({ system: "Antworte nur mit OK.", content: T("Test"), maxTokens: 400, model: "claude-haiku-5-5" }); toast(/ok/i.test(r.text) ? T("KI erreichbar ✓") : T("KI antwortet ✓")); }
   catch (e) { toast(e.message); }
 }
 
@@ -80,7 +80,7 @@ Regeln:
 7. Grammatik: Für jeden Grammatikpunkt im Material 3–8 Karten mit kind "cloze": target ist ein ganzer Satz, die geübte Form steht in doppelten geschweiften Klammern, z. B. "Io {{sono}} di Roma.", german ist die Übersetzung des ganzen Satzes. Thema: "Grammatik: <Punkt>".
 8. Verben: Jedes Verb, das das Material einführt oder konjugiert, kommt in "verbs" (nicht zusätzlich in topics). tenses: nur aus dieser Liste, exakt so geschrieben: ${tenses || "Präsens"}. Formen in der Reihenfolge ${(L.persons || []).join(", ") || "der Personen"}; mindestens die erste Zeit, weitere nur, wenn du sicher bist. ${L.code === "it" ? 'auxiliary: avere oder essere.' : 'auxiliary: "none".'} regular: true bei regelmäßigen Verben.
 9. Erfinde keine Vokabeln, die nicht im Material stehen (Beispielsätze ausgenommen). Keine Dopplungen.
-10. "project": kurzer deutscher Projektname passend zum Material, z. B. "Kurs A1 · Lektion 2". Vorhandene Projekte des Lernenden: ${decks.length ? decks.map((d) => `"${d}"`).join(", ") : "keine"} – wenn das Material eindeutig dazu gehört, nimm genau diesen Namen.`;
+10. "project": kurzer deutscher Projektname passend zum Material, z. B. "Kurs A1 · Lektion 2". Vorhandene Projekte des Lernenden: ${decks.length ? decks.map((d) => `"${d}"`).join(", ") : T("keine")} – wenn das Material eindeutig dazu gehört, nimm genau diesen Namen.`;
 }
 async function aiExtract(L, blocks, note, onText) {
   const decks = decksOf(L.code).map((d) => d.name).filter((d) => d !== OWN_DECK);
@@ -119,7 +119,7 @@ async function aiFill(L, list) {
 /* ---------- Check a built sentence ---------- */
 const AI_CHECK_SCHEMA = { type: "object", additionalProperties: false, required: ["correct", "corrected", "explanation"], properties: { correct: { type: "boolean" }, corrected: { type: "string" }, explanation: { type: "string" } } };
 async function aiCheckSentence(L, de, ref, user) {
-  const r = await aiCall({ model: "claude-haiku-5-5", system: `Du bist ein freundlicher ${L.name}-Lehrer für Deutschsprachige (Niveau A1–A2). Beurteile, ob die Antwort des Lernenden eine korrekte und natürliche Übersetzung des deutschen Satzes ist. Groß-/Kleinschreibung und Satzzeichen ignorieren; andere korrekte Formulierungen als die Musterlösung sind richtig. Wenn nicht korrekt: gib die korrigierte Version, die möglichst nah an der Antwort des Lernenden bleibt, und erkläre den Fehler in 1–2 kurzen deutschen Sätzen. Wenn korrekt: corrected leer, explanation ein kurzer Satz.`,
+  const r = await aiCall({ model: "claude-haiku-5-5", system: `Du bist ein freundlicher ${L.name}-Lehrer für Deutschsprachige (Niveau A1–A2). Beurteile, ob die Antwort des Lernenden eine korrekte und natürliche Übersetzung des deutschen Satzes ist. Groß-/Kleinschreibung und Satzzeichen ignorieren; andere korrekte Formulierungen als die Musterlösung sind richtig. Wenn nicht korrekt: gib die korrigierte Version, die möglichst nah an der Antwort des Lernenden bleibt, und erkläre den Fehler in 1–2 kurzen deutschen Sätzen. Wenn korrekt: corrected leer, explanation ein kurzer Satz.${UI === "en" ? " Schreibe explanation auf Englisch." : ""}`,
     content: [{ type: "text", text: `Deutscher Satz: ${de}\nMusterlösung: ${ref}\nAntwort des Lernenden: ${user}` }], schema: AI_CHECK_SCHEMA, maxTokens: 4000, effort: "low" });
   return r.json;
 }

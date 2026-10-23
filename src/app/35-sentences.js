@@ -52,23 +52,23 @@ function buildEntries(o) {
 }
 function startBuild(o) {
   const q = buildEntries(o);
-  if (!q.length) { toast("Noch keine Sätze – lade z. B. „Alltagssätze“ oder lerne Wörter mit Beispielsatz"); return; }
+  if (!q.length) { toast(T("Noch keine Sätze – lade z. B. „Alltagssätze“ oder lerne Wörter mit Beispielsatz")); return; }
   state.study = newSession("build", o, q);
   openStudy();
 }
 function openBuild(code, deck) {
   const withSent = langs().filter((l) => sentenceBank(l.code).length);
   if (!code) {
-    if (!withSent.length) { toast("Noch keine Sätze – lade z. B. „Alltagssätze“ oder lerne Wörter mit Beispielsatz"); return; }
-    if (withSent.length > 1) { openForm({ title: "Sätze bauen", fields: [{ k: "lang", label: "Sprache", type: "select", opts: withSent.map((l) => [l.code, l.name]) }], saveLabel: "Weiter", onSave: (v) => setTimeout(() => openBuild(v.lang), 260) }); return; }
+    if (!withSent.length) { toast(T("Noch keine Sätze – lade z. B. „Alltagssätze“ oder lerne Wörter mit Beispielsatz")); return; }
+    if (withSent.length > 1) { openForm({ title: T("Sätze bauen"), fields: [{ k: "lang", label: T("Sprache"), type: "select", opts: withSent.map((l) => [l.code, lname(l)]) }], saveLabel: T("Weiter"), onSave: (v) => setTimeout(() => openBuild(v.lang), 260) }); return; }
     code = withSent[0].code;
   }
   const L = langOf(code), n = sentenceBank(code, deck).length, learned = state.cards.some((c) => c.lang === code && isLearned(c));
-  openForm({ title: "Sätze bauen", hint: `${L.name}${deck != null ? " · " + deck : ""}: Du siehst einen deutschen Satz und baust ihn auf ${L.name} – aus Wort-Bausteinen oder frei getippt. PLM korrigiert Wort für Wort.`, saveLabel: "Los geht's",
+  openForm({ title: T("Sätze bauen"), hint: T("{0}{1}: Du siehst einen deutschen Satz und baust ihn auf {2} – aus Wort-Bausteinen oder frei getippt. PLM korrigiert Wort für Wort.", [lname(L), deck != null ? " · " + dn(deck) : "", lname(L)]), saveLabel: T("Los geht's"),
     fields: [
-      { k: "style", label: "Art", type: "select", opts: [["tiles", "Bausteine antippen"], ["type", "Frei tippen"]], half: true },
-      { k: "count", label: "Anzahl", type: "select", opts: [[5, "5 Sätze"], [10, "10 Sätze"], [20, "20 Sätze"]], half: true },
-      { k: "sel", label: "Sätze", type: "select", opts: [["known", "Vor allem mit Wörtern, die ich schon kenne"], ["all", "Gemischt – auch neue Wörter erschließen"]] }
+      { k: "style", label: T("Art"), type: "select", opts: [["tiles", T("Bausteine antippen")], ["type", T("Frei tippen")]], half: true },
+      { k: "count", label: T("Anzahl"), type: "select", opts: [[5, T("5 Sätze")], [10, T("10 Sätze")], [20, T("20 Sätze")]], half: true },
+      { k: "sel", label: T("Sätze"), type: "select", opts: [["known", T("Vor allem mit Wörtern, die ich schon kenne")], ["all", T("Gemischt – auch neue Wörter erschließen")]] }
     ],
     values: { style: lsGet("plm.buildStyle") || "tiles", count: 10, sel: learned ? "known" : "all" },
     onSave: (v) => { lsSet("plm.buildStyle", v.style); startBuild({ lang: code, deck, style: v.style, count: Math.min(Number(v.count), n), sel: v.sel }); } });

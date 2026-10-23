@@ -89,11 +89,11 @@ const syncOn = () => !!syncCfg().token;
 let syncing = false, syncTimer = 0, syncAgain = false;
 function syncStatusText() {
   const s = syncCfg();
-  if (syncing) return "↻ Synchronisiere …";
-  if (s.error) return `⚠ Sync: ${s.error}`;
-  if (!s.last) return "Noch nicht synchronisiert";
+  if (syncing) return T("↻ Synchronisiere …");
+  if (s.error) return T("⚠ Sync: {0}", [s.error]);
+  if (!s.last) return T("Noch nicht synchronisiert");
   const m = Math.round((Date.now() - s.last) / 60000);
-  return `✓ Synchronisiert ${m < 1 ? "gerade eben" : m < 60 ? `vor ${m} Min.` : dayNum(s.last, 0) === dayNum(Date.now(), 0) ? `um ${timeFmt.format(new Date(s.last))}` : `am ${dayMonFmt.format(new Date(s.last))}`}`;
+  return T("✓ Synchronisiert {0}", [m < 1 ? T("gerade eben") : m < 60 ? T("vor {0} Min.", [m]) : dayNum(s.last, 0) === dayNum(Date.now(), 0) ? T("um {0}", [timeFmt.format(new Date(s.last))]) : T("am {0}", [dayMonFmt.format(new Date(s.last))])]);
 }
 function updateSyncLine() { const el = $("syncLine"); if (el) el.textContent = syncStatusText(); }
 function syncSoon(ms) {
@@ -106,23 +106,24 @@ async function gh(path, opt) {
   let r;
   try {
     r = await fetch("https://api.github.com" + path, { ...(opt || {}), cache: "no-store", headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${(opt && opt.token) || s.token}`, "X-GitHub-Api-Version": "2022-11-28", ...(opt && opt.body ? { "Content-Type": "application/json" } : {}) } });
-  } catch { throw new Error("Keine Verbindung zu GitHub"); }
-  if (r.status === 401) throw new Error("Token ungültig oder abgelaufen");
-  if (r.status === 403) throw new Error("Token hat keine Gist-Berechtigung oder GitHub-Limit erreicht");
+  } catch { throw new Error(T("Keine Verbindung zu GitHub")); }
+  if (r.status === 401) throw new Error(T("Token ungültig oder abgelaufen"));
+  if (r.status === 403) throw new Error(T("Token hat keine Gist-Berechtigung oder GitHub-Limit erreicht"));
   return r;
 }
 const gistPayload = () => ({ ...snapshotData(false), updatedAt: nowTs() });
 async function findOrCreateGist() {
   for (let page = 1; page <= 5; page++) {
     const r = await gh(`/gists?per_page=100&page=${page}`);
-    if (!r.ok) throw new Error(`GitHub antwortet mit ${r.status}`);
+    if (!r.ok) throw new Error(T("GitHub antwortet mit {0}", [r.status]));
     const list = await r.json();
     const g = list.find((x) => x.files && x.files[GIST_FILE]);
     if (g) { setSync({ gistId: g.id }); return { id: g.id, created: false }; }
     if (list.length < 100) break;
   }
   const r = await gh("/gists", { method: "POST", body: JSON.stringify({ description: "PLM – Personal Language Management (Sync, bitte nicht löschen)", public: false, files: { [GIST_FILE]: { content: JSON.stringify(gistPayload()) } } }) });
-  if (!r.ok) throw new Error(`Gist konnte nicht angelegt werden (${r.status})`);
+  if (r.status === 404 || r.status === 403) throw new Error(T("Dem Token fehlt die Berechtigung „gist“ – neues Token mit Häkchen bei „gist“ anlegen"));
+  if (!r.ok) throw new Error(T("Gist konnte nicht angelegt werden ({0})", [r.status]));
   const g = await r.json();
   setSync({ gistId: g.id });
   return { id: g.id, created: true };
@@ -131,7 +132,7 @@ async function syncNow(manual) {
   const s0 = syncCfg();
   if (!s0.token) return;
   if (syncing) { syncAgain = true; return; }
-  if (navigator.onLine === false) { if (manual) toast("Offline – Sync folgt, sobald du online bist"); return; }
+  if (navigator.onLine === false) { if (manual) toast(T("Offline – Sync folgt, sobald du online bist")); return; }
   syncing = true; clearTimeout(syncTimer); updateSyncLine();
   const before = state.cards.length;
   try {
@@ -140,7 +141,7 @@ async function syncNow(manual) {
     s = syncCfg();
     let r = await gh(`/gists/${s.gistId}`);
     if (r.status === 404) { setSync({ gistId: "" }); await findOrCreateGist(); s = syncCfg(); r = await gh(`/gists/${s.gistId}`); }
-    if (!r.ok) throw new Error(`GitHub antwortet mit ${r.status}`);
+    if (!r.ok) throw new Error(T("GitHub antwortet mit {0}", [r.status]));
     const g = await r.json(), f = g.files && g.files[GIST_FILE];
     if (f) {
       let txt = f.content;
@@ -150,12 +151,12 @@ async function syncNow(manual) {
     }
     saveNow();
     const p = await gh(`/gists/${s.gistId}`, { method: "PATCH", body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify(gistPayload()) } } }) });
-    if (!p.ok) throw new Error(`Speichern fehlgeschlagen (${p.status})`);
+    if (!p.ok) throw new Error(T("Speichern fehlgeschlagen ({0})", [p.status]));
     setSync({ last: Date.now(), error: "" });
-    if (manual) toast(state.cards.length !== before ? `Synchronisiert · ${state.cards.length - before > 0 ? "+" : ""}${state.cards.length - before} Karten` : "Synchronisiert");
+    if (manual) toast(state.cards.length !== before ? T("Synchronisiert · {0}{1} Karten", [state.cards.length - before > 0 ? "+" : "", state.cards.length - before]) : T("Synchronisiert"));
   } catch (e) {
     setSync({ error: (e && e.message) || "fehlgeschlagen" });
-    if (manual) toast((e && e.message) || "Sync fehlgeschlagen");
+    if (manual) toast((e && e.message) || T("Sync fehlgeschlagen"));
   } finally {
     syncing = false;
     const a = document.activeElement, typing = a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && $("view").contains(a);
@@ -165,25 +166,25 @@ async function syncNow(manual) {
 }
 async function syncConnect(token) {
   token = String(token || "").trim();
-  if (!/^(ghp_|github_pat_|gho_)[A-Za-z0-9_]{20,}$/.test(token)) { toast("Das sieht nicht wie ein GitHub-Token aus (beginnt mit ghp_ …)"); return; }
-  toast("Verbinde mit GitHub …");
+  if (!/^(ghp_|github_pat_|gho_)[A-Za-z0-9_]{20,}$/.test(token)) { toast(T("Das sieht nicht wie ein GitHub-Token aus (beginnt mit ghp_ …)")); return; }
+  toast(T("Verbinde mit GitHub …"));
   try {
     const r = await gh("/user", { token });
-    if (!r.ok) throw new Error(`GitHub antwortet mit ${r.status}`);
+    if (!r.ok) throw new Error(T("GitHub antwortet mit {0}", [r.status]));
     const u = await r.json();
     const scopes = r.headers.get("x-oauth-scopes");
-    if (scopes != null && scopes !== "" && !/\bgist\b/.test(scopes)) throw new Error("Dem Token fehlt die Berechtigung „gist“");
+    if (scopes != null && !/\bgist\b/.test(scopes)) throw new Error(T("Dem Token fehlt die Berechtigung „gist“"));
     setSync({ token, login: u.login || "", gistId: "", last: 0, error: "" });
     const g = await findOrCreateGist();
     await syncNow(false);
-    toast(g.created ? "Verbunden – deine Karten liegen jetzt auch in GitHub" : "Verbunden – Daten vom anderen Gerät übernommen");
+    toast(g.created ? T("Verbunden – deine Karten liegen jetzt auch in GitHub") : T("Verbunden – Daten vom anderen Gerät übernommen"));
   } catch (e) {
     setSync({ token: "", error: "" });
-    toast((e && e.message) || "Verbindung fehlgeschlagen");
+    toast((e && e.message) || T("Verbindung fehlgeschlagen"));
   }
   render();
 }
-function syncDisconnect() { lsSet(KEYS.sync, "{}"); state.armed = null; render(); toast("Sync getrennt – die Daten im Gist bleiben erhalten"); }
+function syncDisconnect() { lsSet(KEYS.sync, "{}"); state.armed = null; render(); toast(T("Sync getrennt – die Daten im Gist bleiben erhalten")); }
 addEventListener("online", () => syncSoon(1000));
 document.addEventListener("visibilitychange", () => {
   if (!syncOn()) return;

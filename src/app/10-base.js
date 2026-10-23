@@ -3,11 +3,11 @@ const KEYS = {
   cards: "plm.cards.v1", settings: "plm.settings.v1", stats: "plm.stats.v1", backup: "plm.lastBackup", open: "plm.open",
   tomb: "plm.tomb.v1", statsOther: "plm.statsOther.v1", tests: "plm.tests.v1", dev: "plm.dev", ai: "plm.ai.v1", sync: "plm.sync.v1"
 };
-const POS = { n: "Nomen", v: "Verb", adj: "Adjektiv", adv: "Adverb", ph: "Ausdruck", s: "Satz", x: "Sonstiges" };
-const MODES = [["flip", "Umdrehen"], ["type", "Tippen"], ["choice", "Auswahl"]];
-const TTS_LIST = [["en-GB", "Englisch (UK)"], ["en-US", "Englisch (USA)"], ["it-IT", "Italienisch"], ["es-ES", "Spanisch (Spanien)"], ["es-MX", "Spanisch (Mexiko)"], ["fr-FR", "Französisch"], ["pt-PT", "Portugiesisch (Portugal)"], ["pt-BR", "Portugiesisch (Brasilien)"], ["nl-NL", "Niederländisch"], ["sv-SE", "Schwedisch"], ["da-DK", "Dänisch"], ["nb-NO", "Norwegisch"], ["pl-PL", "Polnisch"], ["tr-TR", "Türkisch"], ["ru-RU", "Russisch"], ["el-GR", "Griechisch"], ["ja-JP", "Japanisch"], ["zh-CN", "Chinesisch"], ["ko-KR", "Koreanisch"], ["ar-SA", "Arabisch"]];
+const POS = { n: T("Nomen"), v: T("Verb"), adj: T("Adjektiv"), adv: T("Adverb"), ph: T("Ausdruck"), s: T("Satz"), x: T("Sonstiges") };
+const MODES = [["flip", T("Umdrehen")], ["type", T("Tippen")], ["choice", T("Auswahl")]];
+const TTS_LIST = [["en-GB", T("Englisch (UK)")], ["en-US", T("Englisch (USA)")], ["it-IT", T("Italienisch")], ["es-ES", T("Spanisch (Spanien)")], ["es-MX", T("Spanisch (Mexiko)")], ["fr-FR", T("Französisch")], ["pt-PT", T("Portugiesisch (Portugal)")], ["pt-BR", T("Portugiesisch (Brasilien)")], ["nl-NL", T("Niederländisch")], ["sv-SE", T("Schwedisch")], ["da-DK", T("Dänisch")], ["nb-NO", T("Norwegisch")], ["pl-PL", T("Polnisch")], ["tr-TR", T("Türkisch")], ["ru-RU", T("Russisch")], ["el-GR", T("Griechisch")], ["ja-JP", T("Japanisch")], ["zh-CN", T("Chinesisch")], ["ko-KR", T("Koreanisch")], ["ar-SA", T("Arabisch")]];
 const LANG_COLORS = ["#3FA9FF", "#2EE6D6", "#FF8A3D", "#C77DFF", "#30D97F", "#FF5FA8", "#F5C04A", "#8E8BFF", "#FFB4A2", "#7FD1FF"];
-const MEANING_LANGS = { en: "Englisch", it: "Italienisch", es: "Spanisch", fr: "Französisch" };
+const MEANING_LANGS = { en: T("Englisch"), it: T("Italienisch"), es: T("Spanisch"), fr: T("Französisch") };
 const OWN_DECK = "Eigene Karten";
 
 const $ = (id) => document.getElementById(id);
@@ -15,14 +15,18 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const newId = () => "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const nowTs = () => Date.now();
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const nf = new Intl.NumberFormat("de-DE");
+const LOC = UI === "en" ? "en-GB" : "de-DE";
+const nf = new Intl.NumberFormat(LOC);
 const num = (n) => nf.format(Math.round(n));
-const dateFmt = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short", year: "numeric" });
-const dayMonFmt = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short" });
-const wdFmt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "short" });
-const timeFmt = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+const dateFmt = new Intl.DateTimeFormat(LOC, { day: "numeric", month: "short", year: "numeric" });
+const dayMonFmt = new Intl.DateTimeFormat(LOC, { day: "numeric", month: "short" });
+const wdFmt = new Intl.DateTimeFormat(LOC, { weekday: "short", day: "numeric", month: "short" });
+const timeFmt = new Intl.DateTimeFormat(LOC, { hour: "2-digit", minute: "2-digit" });
 const dateOfDay = (n) => { const d = new Date(n * 864e5); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
-const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
+/* English nouns are lower case inside a sentence ("5 cards"); German ones keep their capital */
+const lc = (w) => (UI === "en" && /^[A-Z][a-z]/.test(w) ? w.charAt(0).toLowerCase() + w.slice(1) : w);
+const plural = (n, one, many) => `${num(n)} ${lc(n === 1 ? one : many)}`;
+const noun = (n, one, many) => lc(T(n === 1 ? one : many));
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch { return false; } };
 
@@ -53,7 +57,7 @@ function saveNow() {
     localStorage.setItem(KEYS.tests, JSON.stringify(state.tests));
     saveWarned = false;
   } catch {
-    if (!saveWarned) { saveWarned = true; toast("Speichern fehlgeschlagen – Speicher voll? Sichere ein Backup."); }
+    if (!saveWarned) { saveWarned = true; toast(T("Speichern fehlgeschlagen – Speicher voll? Sichere ein Backup.")); }
   }
 }
 /* dirty = data that should go to the other devices */
@@ -96,6 +100,7 @@ function normSettings(s) {
     rate: [0.8, 0.9, 1, 1.1].includes(s.rate) ? s.rate : 0.9,
     remind: /^\d{2}:\d{2}$/.test(s.remind || "") ? s.remind : "19:00",
     badge: !!s.badge,
+    ui: s.ui === "en" || s.ui === "de" ? s.ui : UI,
     updatedAt: Number.isFinite(s.updatedAt) ? s.updatedAt : 0
   };
 }
@@ -145,10 +150,14 @@ function loadAll() {
 /* ================= Languages, projects, topics ================= */
 const langs = () => state.settings.langs;
 const langOf = (code) => langs().find((l) => l.code === code) || null;
-const langName = (code) => (langOf(code) || { name: code }).name;
+/* display name: built-in language names follow the app language */
+/* built-in project and topic names (starter packs) are shown in the app language; the stored name stays */
+const dn = (name) => (name ? T(name) : name);
+const lname = (L) => (L ? T(L.name) : "");
+const langName = (code) => lname(langOf(code) || { name: code });
 const cardsOf = (code) => state.cards.filter((c) => c.lang === code);
 const hasGenderedNouns = (L) => L && ["it", "es", "fr", "pt"].includes(L.code);
-const meaningName = (c) => (c.ml ? MEANING_LANGS[c.ml] : "Deutsch");
+const meaningName = (c) => (c.ml ? MEANING_LANGS[c.ml] : T("Deutsch"));
 function decksOf(code) {
   const m = new Map();
   for (const c of state.cards) if (c.lang === code) { const d = m.get(c.deck) || { name: c.deck, n: 0, first: c.created }; d.n++; d.first = Math.min(d.first, c.created); m.set(c.deck, d); }
@@ -235,7 +244,7 @@ function cardState(c) {
   if (sts.length === items.length && sts.every((s) => s.st === "rev" && s.ivl >= 21)) return "known";
   return "learn";
 }
-const STATE_TXT = { new: "Neu", learn: "Lernen", known: "Sicher", hard: "Schwierig", susp: "Pausiert" };
+const STATE_TXT = { new: T("Neu"), learn: T("Im Lernen"), known: T("Sicher"), hard: T("Schwierig"), susp: T("Pausiert") };
 const isLearned = (c) => Object.keys(c.srs).length > 0;
 function nextDue(c) {
   let m = Infinity;
@@ -246,7 +255,7 @@ function dueText(c) {
   const d = nextDue(c);
   if (d === Infinity) return "";
   const dd = dayNum(d, roll()) - today();
-  return dd <= 0 ? "heute" : dd === 1 ? "morgen" : dd < 30 ? `in ${dd} T.` : `in ${Math.round(dd / 30.4)} Mon.`;
+  return dd <= 0 ? T("heute") : dd === 1 ? T("morgen") : dd < 30 ? T("in {0} T.", [dd]) : T("in {0} Mon.", [Math.round(dd / 30.4)]);
 }
 function srsCfg(entry, c) { return { now: nowTs(), roll: roll(), ret: state.settings.ret, max: 3650, seed: c.id + entry.k, fresh: !!entry.fresh }; }
 
@@ -356,7 +365,7 @@ function speak(text, code, o) {
   u.lang = langTag(code); u.rate = o.slow ? 0.62 : state.settings.rate; u.pitch = 1; u.volume = 1;
   const v = pickVoice(code);
   if (v) u.voice = v;
-  else if (voices.length && !noVoiceWarned.has(code) && !o.quiet) { noVoiceWarned.add(code); toast(`Keine ${langName(code)}-Stimme auf diesem Gerät – siehe Einstellungen › Aussprache`); }
+  else if (voices.length && !noVoiceWarned.has(code) && !o.quiet) { noVoiceWarned.add(code); toast(T("Keine {0}-Stimme auf diesem Gerät – siehe Einstellungen › Aussprache", [langName(code)])); }
   if (o.onend) { u.onend = o.onend; u.onerror = o.onend; }
   curUtter = u;
   try {

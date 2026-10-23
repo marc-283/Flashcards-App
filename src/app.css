@@ -399,3 +399,53 @@ details.more[open] summary { margin-bottom: 12px; }
   .sheet form { max-width: 620px; }
 }
 @media (prefers-reduced-motion: reduce) { .fcard.flip-out, .fcard.flip-in, .pulse, .st-prog span.indet { animation: none; } }
+
+/* ---------- v1.2: theory ---------- */
+.th-body { display: flex; flex-direction: column; gap: 14px; }
+.th-p { margin: 0; color: var(--ink); font-size: 16px; line-height: 1.55; }
+.th-p i, .th-tip i { color: var(--accent); font-style: normal; }
+.th-h { margin: 12px 0 0; font-family: var(--f-display); font-weight: 800; font-size: 21px; letter-spacing: 0.02em; text-transform: uppercase; }
+.th-tip { display: flex; gap: 10px; align-items: flex-start; background: rgba(255, 232, 58, 0.07); border: 1px solid rgba(255, 232, 58, 0.35); border-radius: 14px; padding: 12px 14px; }
+.th-tip p { margin: 0; color: var(--ink); font-size: 15px; line-height: 1.5; }
+.th-tw { background: var(--surface); }
+.th-t th { white-space: normal; }
+.th-t td { vertical-align: top; font-size: 15px; }
+.th-t td.th-first { color: var(--muted); font-size: 14px; }
+.th-cell { display: inline-flex; align-items: center; gap: 8px; }
+.th-say { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--raised); color: var(--accent); display: inline-grid; place-items: center; padding: 0; }
+.th-say svg { width: 17px; height: 17px; }
+.th-say.big { width: 52px; height: 52px; }
+.th-say.big svg { width: 26px; height: 26px; }
+.th-ex { display: flex; flex-direction: column; gap: 8px; }
+.th-exi { display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+.th-exi .th-tg { display: block; font-weight: 600; font-size: 16px; color: var(--ink); line-height: 1.35; }
+.th-exi small { display: block; color: var(--muted); font-size: 14px; margin-top: 3px; }
+.th-conjgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 10px; }
+.th-conj { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 10px 8px 4px; min-width: 0; }
+.th-conj-h { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 0 4px 4px; }
+.th-conj-h b { display: block; font-size: 17px; }
+.th-conj-h small { display: block; color: var(--muted); font-size: 12px; }
+.th-conj td { padding: 4px 6px; font-size: 14.5px; }
+.th-quizbtn { align-self: flex-start; }
+.th-nav { margin-top: 8px; }
+.th-navbtn { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; min-width: 0; }
+.th-navbtn small { color: var(--muted); font-size: 12px; font-weight: 600; }
+.th-search { display: flex; gap: 8px; }
+.th-search input { flex: 1; min-width: 0; }
+.th-verbchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.th-verbhead { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
+.th-verbhead h2 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 34px; overflow-wrap: anywhere; }
+.th-verbhead .meta { grid-column: 1 / -1; margin: 0; }
+.th-word { display: flex; gap: 12px; align-items: flex-start; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.th-word-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.th-word .th-tg { font-weight: 700; font-size: 17px; }
+.th-de { color: var(--muted); }
+.th-word small { color: var(--muted); font-size: 13.5px; }
+.sectitle.th-small { font-size: 18px; }
+.th-qcard { justify-content: center; align-items: center; text-align: center; }
+.th-q { font-size: clamp(24px, 7vw, 34px); font-weight: 600; line-height: 1.25; }
+.th-why { margin: 0; color: var(--ink); background: var(--raised); border-radius: 12px; padding: 10px 12px; font-size: 15px; }
+.say-row { display: flex; justify-content: center; }
+.th-q .gap { display: inline-block; min-width: 2.4em; border-bottom: 3px solid var(--accent); color: var(--accent); padding: 0 4px; }
+.th-t th, .th-t td { padding: 7px 8px; }
+@media (max-width: 420px) { .th-t td { font-size: 14px; } .th-t th { font-size: 11px; } }

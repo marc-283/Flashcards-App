@@ -72,13 +72,16 @@ function srsOptions(st, cfg) {
   if (o[3].ivl <= o[2].ivl) { o[3].ivl = Math.min(cfg.max || 3650, o[2].ivl + 1); o[3].due = dayStart(o[3].ld + o[3].ivl, cfg.roll); }
   return o;
 }
+/* UI texts: the app defines T() (German/English); without it (tests) the German text is used */
+const tr = (s, a) => (typeof T === "function" ? T(s, a) : String(s).replace(/\{(\d+)\}/g, (_, i) => (a ? a[i] : "")));
 function fmtIvl(r) {
-  if (!r || r.st === "lrn") return "<10 Min";
+  if (!r || r.st === "lrn") return tr("<10 Min");
   const d = r.ivl;
-  if (d < 14) return `${d} T`;
-  if (d < 60) return `${Math.round(d / 7)} Wo`;
-  if (d < 365) return `${Math.round(d / 30.4)} Mo`;
-  return `${(Math.round(d / 36.5) / 10).toString().replace(".", ",")} J`;
+  if (d < 14) return tr("{0} T", [d]);
+  if (d < 60) return tr("{0} Wo", [Math.round(d / 7)]);
+  if (d < 365) return tr("{0} Mo", [Math.round(d / 30.4)]);
+  const y = (Math.round(d / 36.5) / 10).toString();
+  return tr("{0} J", [typeof UI !== "undefined" && UI === "en" ? y : y.replace(".", ",")]);
 }
 
 /* ================= Languages ================= */
@@ -344,7 +347,7 @@ function icsDaily(hhmm, title, url, startKey) {
   const t = `${pad2(h || 0)}${pad2(m || 0)}00`;
   const uid = "plm-reminder-" + d + t + "@plm";
   return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//PLM//Flashcards//DE", "CALSCALE:GREGORIAN", "BEGIN:VEVENT", `UID:${uid}`, `DTSTAMP:${d}T000000Z`,
-    `DTSTART:${d}T${t}`, "DURATION:PT10M", "RRULE:FREQ=DAILY", `SUMMARY:${title}`, url ? `URL:${url}` : "", `DESCRIPTION:Zeit für deine Karten in PLM.${url ? "\\n" + url : ""}`,
+    `DTSTART:${d}T${t}`, "DURATION:PT10M", "RRULE:FREQ=DAILY", `SUMMARY:${title}`, url ? `URL:${url}` : "", `DESCRIPTION:${tr("Zeit für deine Karten in PLM.")}${url ? "\\n" + url : ""}`,
     "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${title}`, "TRIGGER:PT0M", "END:VALARM", "END:VEVENT", "END:VCALENDAR"].filter(Boolean).join("\r\n");
 }
 

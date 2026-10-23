@@ -19,31 +19,32 @@ function viewLangCode() {
   const t = topView();
   if (t.v === "cards" || t.v === "deck") return t.p.lang;
   if (t.v === "verb") return (cardById(t.p) || {}).lang;
+  if (t.p && typeof t.p === "object" && t.p.lang) return t.p.lang;
   return typeof t.p === "string" ? t.p : curLangCode();
 }
 const studyLang = () => { const S = state.study, e = S && S.queue[0]; return e ? e.lang : viewLangCode(); };
 function parseP(a) { const raw = a.dataset.p; if (raw == null) return undefined; try { return raw.startsWith("{") ? JSON.parse(raw) : raw; } catch { return raw; } }
 function pickLang(title, cb) {
   if (langs().length === 1) { cb(langs()[0].code); return; }
-  openForm({ title, fields: [{ k: "lang", label: "Sprache", type: "select", opts: langs().map((l) => [l.code, l.name]) }], values: { lang: curLangCode() }, saveLabel: "Weiter", onSave: (v) => setTimeout(() => cb(v.lang), 260) });
+  openForm({ title, fields: [{ k: "lang", label: T("Sprache"), type: "select", opts: langs().map((l) => [l.code, lname(l)]) }], values: { lang: curLangCode() }, saveLabel: T("Weiter"), onSave: (v) => setTimeout(() => cb(v.lang), 260) });
 }
 
 function openStarterFirst() {
   const opts = [];
-  for (const L of langs()) for (const p of STARTER[L.code] || []) opts.push([`${L.code}:${p.id}`, `${L.name}: ${p.name}`]);
+  for (const L of langs()) for (const p of STARTER[L.code] || []) opts.push([`${L.code}:${p.id}`, `${lname(L)}: ${dn(p.name)}`]);
   if (!opts.length) { go("lang", langs()[0].code); return; }
   const def = opts.filter(([k]) => !/alltag|everyday|frasi|phrasal|false/.test(k)).map(([k]) => k);
-  openForm({ title: "Starter-Pakete", hint: "Jedes Paket wird ein Projekt. PLM zeigt dir jeden Tag nur ein paar neue Karten (15 pro Sprache, einstellbar). Weitere Pakete kannst du jederzeit nachladen.", saveLabel: "Laden",
-    fields: [{ k: "packs", label: "Pakete", type: "chips", opts }], values: { packs: def },
-    validate: (v) => (!v.packs.length ? "Wähle mindestens ein Paket." : ""),
-    onSave: (v) => { let n = 0; for (const k of v.packs) { const [code, id] = k.split(":"); n += loadPack(code, id).added; } render(); toast(`${plural(n, "Karte", "Karten")} geladen – los geht's!`); } });
+  openForm({ title: T("Starter-Pakete"), hint: T("Jedes Paket wird ein Projekt. PLM zeigt dir jeden Tag nur ein paar neue Karten (15 pro Sprache, einstellbar). Weitere Pakete kannst du jederzeit nachladen."), saveLabel: T("Laden"),
+    fields: [{ k: "packs", label: T("Pakete"), type: "chips", opts }], values: { packs: def },
+    validate: (v) => (!v.packs.length ? T("Wähle mindestens ein Paket.") : ""),
+    onSave: (v) => { let n = 0; for (const k of v.packs) { const [code, id] = k.split(":"); n += loadPack(code, id).added; } render(); toast(T("{0} geladen – los geht's!", [plural(n, T("Karte"), T("Karten"))])); } });
 }
 function packToast(r) {
   const parts = [];
-  if (r.added) parts.push(`${plural(r.added, "Karte", "Karten")} geladen`);
-  if (r.adopted) parts.push(`${num(r.adopted)} aus anderen Projekten übernommen`);
-  if (r.skipped) parts.push(`${num(r.skipped)} schon vorhanden`);
-  toast(parts.join(" · ") || "Alle Karten waren schon da");
+  if (r.added) parts.push(`${plural(r.added, T("Karte"), T("Karten"))} geladen`);
+  if (r.adopted) parts.push(T("{0} aus anderen Projekten übernommen", [num(r.adopted)]));
+  if (r.skipped) parts.push(T("{0} schon vorhanden", [num(r.skipped)]));
+  toast(parts.join(" · ") || T("Alle Karten waren schon da"));
 }
 
 /* ================= Clicks ================= */
@@ -86,7 +87,22 @@ document.addEventListener("click", (ev) => {
     case "build-any": openBuild(null); break;
     case "drill": openDrill(arg); break;
     case "drill-any": openDrill(null); break;
-    case "import-any": pickLang("Importieren", (code) => go("import", code)); break;
+    case "theory-any": { const ls = theoryLangs(); if (!ls.length) { toast(T("Für deine Sprachen gibt es noch keine Theorie")); break; } const cur = ls.find((l) => l.code === curLangCode()) || ls[0]; go("theory", cur.code); break; }
+    case "newwords-any": pickLang(T("Neue Wörter"), (code) => go("newwords", code)); break;
+    case "th-say": speak(arg, a.dataset.p || viewLangCode()); break;
+    case "th-lang": { if (top.v === "theory") top.p = arg; else if (top.p && typeof top.p === "object") top.p = { lang: arg }; render(); break; }
+    case "th-goto": top.p = { ...top.p, id: arg }; render(); window.scrollTo(0, 0); break;
+    case "th-verb": top.p = { ...(top.p || {}), verb: arg }; render(); break;
+    case "quiz-start": startQuiz(arg); break;
+    case "quiz-choose": quizAnswer({ chose: Number(arg) }); break;
+    case "quiz-check": quizAnswer({ typed: ($("quizIn") || {}).value }); break;
+    case "quiz-skip": quizAnswer({ typed: "" }); break;
+    case "quiz-next": if (state.quiz) { state.quiz.i++; state.quiz.res = null; renderQuiz(); } break;
+    case "quiz-again": { const id = state.quiz && state.quiz.id; closeQuiz(); if (id) startQuiz(id); break; }
+    case "quiz-close": closeQuiz(); break;
+    case "nw-learn": if (!startLearn({ lang: arg })) toast(T("Für heute ist nichts mehr fällig")); break;
+    case "nw-preview": startPractice({ lang: arg, sel: "new", count: 30 }); break;
+    case "import-any": pickLang(T("Importieren"), (code) => go("import", code)); break;
     case "deck-rename": renameDeck(top.p.lang, top.p.deck); break;
     case "deck-delete":
       if (state.armed !== "deck") { state.armed = "deck"; render(); break; }
@@ -106,7 +122,7 @@ document.addEventListener("click", (ev) => {
     case "say": speak(arg, studyLang()); break;
     case "say-slow": speak(arg, studyLang(), { slow: true }); break;
     case "voice-test": speak(arg === "it" ? "Ciao! Come stai? Oggi studiamo un po' d'italiano." : arg === "en" ? "Hello! How are you? Let's practise some English today." : (cardsOf(arg)[0] || {}).tg || langName(arg), arg); break;
-    case "voice-try": { const sel = $("fs-voice"), L = langOf(arg); if (L && sel) { const old = L.voice; L.voice = sel.value; speak(arg === "it" ? "Buongiorno, piacere di conoscerti!" : arg === "en" ? "Good morning, nice to meet you!" : (cardsOf(arg)[0] || {}).tg || L.name, arg); L.voice = old; } break; }
+    case "voice-try": { const sel = $("fs-voice"), L = langOf(arg); if (L && sel) { const old = L.voice; L.voice = sel.value; speak(arg === "it" ? "Buongiorno, piacere di conoscerti!" : arg === "en" ? "Good morning, nice to meet you!" : (cardsOf(arg)[0] || {}).tg || lname(L), arg); L.voice = old; } break; }
     case "mic": micStart(arg); break;
     case "pack-load": { const r = loadPack(top.p, arg); render(); packToast(r); break; }
     case "pack-remove": {
@@ -136,14 +152,15 @@ document.addEventListener("click", (ev) => {
     case "sync-connect": syncConnect(($("syncToken") || {}).value); break;
     case "sync-now": syncNow(true); updateSyncLine(); break;
     case "sync-off": if (state.armed !== "sync-off") { state.armed = "sync-off"; render(); break; } syncDisconnect(); break;
-    case "ai-save": { const k = (($("aiKey") || {}).value || "").trim(); if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(k)) { toast("Das sieht nicht wie ein Claude-API-Schlüssel aus (beginnt mit sk-ant-)"); break; } lsSet(KEYS.ai, JSON.stringify({ ...aiCfg(), key: k })); render(); aiTest(); break; }
+    case "ui-lang": if (arg !== UI) { state.settings.ui = arg; touchSettings(); saveNow(); lsSet("plm.ui", arg); location.reload(); } break;
+    case "ai-save": { const k = (($("aiKey") || {}).value || "").trim(); if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(k)) { toast(T("Das sieht nicht wie ein Claude-API-Schlüssel aus (beginnt mit sk-ant-)")); break; } lsSet(KEYS.ai, JSON.stringify({ ...aiCfg(), key: k })); render(); aiTest(); break; }
     case "ai-test": aiTest(); break;
-    case "ai-off": if (state.armed !== "ai-off") { state.armed = "ai-off"; render(); break; } state.armed = null; lsSet(KEYS.ai, "{}"); render(); toast("Schlüssel entfernt"); break;
+    case "ai-off": if (state.armed !== "ai-off") { state.armed = "ai-off"; render(); break; } state.armed = null; lsSet(KEYS.ai, "{}"); render(); toast(T("Schlüssel entfernt")); break;
     case "sync-line": syncNow(true); break;
     case "wipe": {
       if (state.armed !== "wipe") { state.armed = "wipe"; render(); break; }
       const ts = nowTs(); for (const c of state.cards) state.tomb[c.id] = ts;
-      state.armed = null; state.cards = []; state.stats = {}; state.tests = {}; reindex(); saveNow(); syncSoon(500); state.stack = [{ v: "hub" }]; render(); toast("Alles gelöscht"); break;
+      state.armed = null; state.cards = []; state.stats = {}; state.tests = {}; reindex(); saveNow(); syncSoon(500); state.stack = [{ v: "hub" }]; render(); toast(T("Alles gelöscht")); break;
     }
     /* study */
     case "study-close": closeStudy(); break;
@@ -174,7 +191,7 @@ document.addEventListener("change", (ev) => {
   if (id === "backupFile") return importBackup(t);
   if (id === "impFile") {
     const f = t.files && t.files[0]; t.value = "";
-    if (f) f.arrayBuffer().then((b) => impParse(decodeBytes(b))).catch(() => toast("Datei konnte nicht gelesen werden"));
+    if (f) f.arrayBuffer().then((b) => impParse(decodeBytes(b))).catch(() => toast(T("Datei konnte nicht gelesen werden")));
     return;
   }
   if (id === "impPhoto" || id === "impPdf") {
@@ -198,9 +215,9 @@ document.addEventListener("change", (ev) => {
     else if (id === "setSpeak") S.autoSpeak = t.checked;
     else if (id === "setRate") { S.rate = Number(t.value); speak(langs()[0] && langs()[0].code === "it" ? "Piacere!" : "Nice to meet you!", langs()[0] ? langs()[0].code : "en"); }
     else if (id === "setBadge") { setBadgeSetting(t.checked); return; }
-    else if (id === "setOpen") { lsSet(KEYS.open, t.value); toast("Gespeichert"); return; }
-    else if (id === "setAiModel") { lsSet(KEYS.ai, JSON.stringify({ ...aiCfg(), model: t.value })); toast("Gespeichert"); return; }
-    touchSettings(); toast("Gespeichert"); return;
+    else if (id === "setOpen") { lsSet(KEYS.open, t.value); toast(T("Gespeichert")); return; }
+    else if (id === "setAiModel") { lsSet(KEYS.ai, JSON.stringify({ ...aiCfg(), model: t.value })); toast(T("Gespeichert")); return; }
+    touchSettings(); toast(T("Gespeichert")); return;
   }
   if (id === "setRemind") { state.settings.remind = t.value; save(false); return; }
   if (act === "impmap" && state.imp) { state.imp.map[t.dataset.field] = Number(t.value); render(); return; }
@@ -241,7 +258,7 @@ $("cardForm").addEventListener("submit", (ev) => { ev.preventDefault(); saveCard
 $("cSaveNext").addEventListener("click", () => saveCard(true));
 $("cDelete").addEventListener("click", () => {
   const b = $("cDelete");
-  if (state.armed !== "card-del") { state.armed = "card-del"; b.classList.add("armed"); b.textContent = "Wirklich löschen?"; return; }
+  if (state.armed !== "card-del") { state.armed = "card-del"; b.classList.add("armed"); b.textContent = T("Wirklich löschen?"); return; }
   const id = state.editing; closeSheets();
   deleteCards([id]);
   if (state.study) { state.study.queue = state.study.queue.filter((e) => e.id !== id); showEntry(); return; }
@@ -250,21 +267,21 @@ $("cDelete").addEventListener("click", () => {
 $("cSusp").addEventListener("click", () => {
   const c = cardById(state.editing); if (!c) return;
   c.susp = !c.susp; if (!c.susp) delete c.susp; c.updated = nowTs(); save(); closeSheets();
-  toast(c.susp ? "Pausiert – wird nicht mehr abgefragt" : "Wird wieder abgefragt");
+  toast(c.susp ? T("Pausiert – wird nicht mehr abgefragt") : T("Wird wieder abgefragt"));
   if (state.study) { if (c.susp) state.study.queue = state.study.queue.filter((e) => e.id !== c.id); showEntry(); } else render();
 });
 $("cReset").addEventListener("click", () => {
   const b = $("cReset"), c = cardById(state.editing); if (!c) return;
-  if (state.armed !== "card-reset") { state.armed = "card-reset"; b.classList.add("armed"); b.textContent = "Wirklich zurücksetzen?"; return; }
+  if (state.armed !== "card-reset") { state.armed = "card-reset"; b.classList.add("armed"); b.textContent = T("Wirklich zurücksetzen?"); return; }
   const ts = nowTs(); c.srs = {}; c.updated = ts; c.resetAt = ts;
-  save(); closeSheets(); toast("Karte gilt wieder als neu"); state.study ? renderStudy() : render();
+  save(); closeSheets(); toast(T("Karte gilt wieder als neu")); state.study ? renderStudy() : render();
 });
 $("selTopic").addEventListener("click", () => { if (state.sel && state.sel.ids.size) openTopicPicker([...state.sel.ids]); });
 $("selSusp").addEventListener("click", () => {
   if (!state.sel || !state.sel.ids.size) return;
   const list = state.cards.filter((c) => state.sel.ids.has(c.id)), allSusp = list.every((c) => c.susp), ts = nowTs();
   list.forEach((c) => { if (allSusp) delete c.susp; else c.susp = true; c.updated = ts; });
-  save(); state.sel = null; render(); toast(allSusp ? `${plural(list.length, "Karte", "Karten")} fortgesetzt` : `${plural(list.length, "Karte", "Karten")} pausiert`);
+  save(); state.sel = null; render(); toast(allSusp ? `${plural(list.length, T("Karte"), T("Karten"))} fortgesetzt` : `${plural(list.length, T("Karte"), T("Karten"))} pausiert`);
 });
 $("selDelete").addEventListener("click", () => {
   if (!state.sel || !state.sel.ids.size) return;

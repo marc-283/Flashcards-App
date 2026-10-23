@@ -2,11 +2,11 @@
 """Builds the deployable app (index.html, sw.js, manifest.webmanifest) from src/."""
 import hashlib, json, os
 ROOT = os.path.dirname(os.path.abspath(__file__))
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 def read(p): return open(os.path.join(ROOT, p), encoding="utf-8").read()
 def js_dir(d): return "\n".join(read(os.path.join(d, f)) for f in sorted(os.listdir(os.path.join(ROOT, d))) if f.endswith(".js"))
 html = read("src/shell.html")
-for k, v in {"{{CSS}}": read("src/app.css"), "{{CORE}}": read("src/core.js"), "{{DATA}}": js_dir("src/data"), "{{APP}}": js_dir("src/app"), "{{VERSION}}": VERSION}.items():
+for k, v in {"{{CSS}}": read("src/app.css"), "{{CORE}}": read("src/core.js"), "{{DATA}}": js_dir("src/data"), "{{APP}}": js_dir("src/app"), "{{VERSION}}": VERSION, "{{I18N}}": json.dumps(json.load(open(os.path.join(ROOT, "src/i18n-en.json"), encoding="utf-8")), ensure_ascii=False)}.items():
     html = html.replace(k, v)
 open(os.path.join(ROOT, "index.html"), "w", encoding="utf-8").write(html)
 manifest = {

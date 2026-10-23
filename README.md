@@ -13,6 +13,10 @@ Updates: Dateien im Repository ersetzen. Die App lädt die neue Version beim nä
 
 ## Was drin ist
 
+- **App-Sprache Deutsch oder Englisch** – *Einstellungen → App-Sprache*. Menüs, Hinweise und die Theorie wechseln, deine Karten bleiben unverändert.
+- **Theorie & Grammatik** – pro Sprache ein Nachschlagebereich mit Erklärungen, Tabellen, Beispielen zum Anhören und Übungen dazu. Italienisch: Aussprache, Artikel (il, lo, l', la, un, uno, una, un'), Nomen & Plural, Adjektive, Pronomen, Possessiva, Präpositionen, Fragewörter, Präsens (regelmäßig und unregelmäßig), Passato prossimo, Imperfetto, Futuro, Condizionale, Imperativo, reflexive Verben, wichtige Strukturen. Englisch: Zeitformen, Present/Past/Future, If-Sätze, Modalverben, Passiv, Artikel, Steigerung, unregelmäßige Verben, typische Fehler von Deutschen.
+- **Verb nachschlagen** – jedes italienische Verb in allen wichtigen Zeitformen (z. B. essere, andare, chiamarsi), englische Verben mit Stammformen.
+- **Neue Wörter ansehen** – alle noch nicht gelernten Wörter zum Durchlesen und Anhören, nach Projekt und Thema.
 - **Lernkarten mit Umdrehen** – vorne nur das Wort oder der Satz, Tippen dreht die Karte; hinten Übersetzung, Beispielsatz mit Übersetzung und Notiz. Neue Karten genauso.
 - **Aussprache** – großer Lautsprecher-Knopf (normal und langsam), auch für den Beispielsatz. Mikrofon-Knopf: du sprichst nach, PLM zeigt Wort für Wort, was erkannt wurde.
 - **Wiederholungsplan (FSRS)** – was du kannst, kommt seltener, was du vergisst, früher wieder. Neue Karten pro Tag je Sprache einstellbar.
@@ -53,6 +57,6 @@ Ein Foto kostet meist unter 1 Cent, ein PDF mit 10 Seiten einige Cent. Der Schl�
 
 ## Selbst ändern
 
-Der Quellcode liegt in `src/`. Nach Änderungen `python3 build.py` ausführen – das erzeugt `index.html`, `sw.js` und `manifest.webmanifest` neu. Tests: `node test/core.test.js` (Lernlogik, Konjugation, Listen- und Foto-Erkennung).
+Der Quellcode liegt in `src/`. Nach Änderungen `python3 build.py` ausführen – das erzeugt `index.html`, `sw.js` und `manifest.webmanifest` neu. Tests: `node test/core.test.js` (Lernlogik, Konjugation, Listen- und Foto-Erkennung). Die englischen Texte der Oberfläche stehen in `src/i18n-en.json` (deutscher Text → englischer Text), die Theorie in `src/data/20-theory-it.js` und `21-theory-en.js`.
 
 Drittsoftware: Tesseract.js (Apache 2.0, `ocr/`), PDF.js (Apache 2.0, `lib/pdfjs/`).
